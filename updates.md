@@ -6,26 +6,24 @@ All notable changes to this project are documented in this file.
 ## [v1.5.0] - 2026-07-28
 
 ### Added & Fixed
+- **Real-Time Two-Way State Sync**: Added 512-byte ATT MTU expansion (`gatt.requestMtu(512)`) and Main Looper UI thread handoff (`Handler(Looper.getMainLooper()).post`) in `BLEMediaService.kt` to fix real-time Play/Pause and Now Playing track metadata sync.
+- **Native Mac Master Output Volume Sync**: Transmits real-time Mac master output volume in BLE GATT metadata (`"volume": 0-100`). Phone seekbar slider, physical volume keys, and Wear OS / Galaxy Watch rotating bezel dial step smoothly in sync with Mac volume.
 - **HTML5 Player Controls Activation**: Watch page player UI activates automatically without manual overlay clicks.
-- **Native Mac Master Output Volume Sync**: Transmits real-time Mac master output volume in BLE GATT metadata (`"volume": 0-100`). Phone seekbar slider, physical volume keys, and Galaxy Watch 4 Classic rotating bezel dial step smoothly in sync with Mac volume.
 - **Dynamic Track & Artist Extraction**: Removed hardcoded fallback strings. Track title and channel name/artist are parsed dynamically from DOM elements or title separators (`Song - Artist`, `Title | Artist`).
 - **Android 14 Intra-App Broadcast Scope**: Added explicit package scoping (`setPackage(packageName)`) for intra-app broadcasts between `BLEMediaService` and `MainActivity`.
-- **Android Companion App v1.1.0**: see [changelog here](android/UPDATES.md)
+- **Android Companion App v1.1.0**: Released companion update with 512-byte ATT MTU expansion, looper UI handoff, and synced volume (see [Companion Changelog](android/UPDATES.md)).
+
+> [!NOTE]
+> Wear OS wrist media controls tested & validated on Samsung Galaxy Watch4C.
+
 ---
 
 ## [v1.4.0] - 2026-07-27
 
 ### Added
-- **Native Two-Way BLE Remote Control System:** Integrated a dedicated `CoreBluetooth` GATT Peripheral (`BLEMediaServer`) running on a background queue.
-- **BLE Service & Characteristics:**
-  - **Service UUID:** `12345678-1234-1234-1234-123456789abc`
-  - **Control Characteristic (Write):** `87654321-4321-4321-4321-cba987654321` supporting 1-byte command protocol (`0x01` Play/Pause toggle, `0x02` Next, `0x03` Prev, `0x04` Vol Up, `0x05` Vol Down via native macOS system output volume control).
-  - **Metadata Characteristic (Notify/Read):** `98765432-4321-4321-4321-abcdef123456` broadcasting real-time JSON payloads (`{"title": "...", "artist": "...", "isPlaying": true}`).
-- **Live Metadata Sync:** Multi-tier DOM and `document.title` extractor automatically emits track title, channel name, and playing state changes whenever YouTube track or playback changes.
-- **Android Companion App v1.0.0 (`android/`)**:
-  - Standalone Gradle Android project structure ready to open & build in Android Studio.
-  - Interactive Dark Glassmorphic UI (`MainActivity.kt`) with live track metadata card, optimistic button toggles, versioning footer (`v1.0.0`), and `Support` button.
-  - Native Android Lock Screen Media Card, Notification Shade MediaSeekbar volume slider, and Wear OS Galaxy Watch 4 Classic controls over BLE.
+- **Native BLE Remote Control System**: Integrated `CoreBluetooth` GATT Peripheral (`BLEMediaServer`) supporting 1-byte command protocol (`0x01` Play/Pause, `0x02` Next, `0x03` Prev, `0x04` Vol Up, `0x05` Vol Down), validated initially over BLE with LightBlue.
+- **Android Companion App v1.0.0 (`android/`)**: Standalone Gradle project with dark glassmorphic UI (`MainActivity.kt`), Lock Screen Media Card, Notification Shade controls, and Wear OS transport controls.
+  - **Relay Flow**: `Wear OS / Galaxy Watch (Android System MediaController)` ➔ `Paired Phone (MediaSessionCompat & BLEMediaService)` ➔ `macOS App (BLEMediaServer)`.
 
 ---
 

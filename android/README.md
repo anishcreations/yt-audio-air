@@ -26,7 +26,6 @@ Streams live track metadata (title, channel, play/pause state) and remote transp
 
 ---
 
-## Support & License
+## License
 
-- Website: [https://anisharyal09.com.np/support?from=yt-audio-air-phone](https://anisharyal09.com.np/support?from=yt-audio-air-phone)
 - Licensed under the Apache License 2.0.

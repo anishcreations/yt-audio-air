@@ -144,7 +144,7 @@ If you prefer to compile the application locally yourself:
 ### Features
 - **Phone Lock Screen & Notification Card**: Displays real-time song title, channel name, album artwork, and transport controls (Play/Pause, Next, Prev, Volume Seekbar).
 - **Wear OS / Galaxy Watches**: Intermediary wrist media controls and bezel volume dial (relayed via paired Android phone over BLE to Mac).
-- **Interactive Dark UI**: Dark glassmorphic interface with connection status badge, live track card, optimistic button response, versioning footer (`v1.1.0`), and Support Me link.
+- **Interactive Dark UI**: Dark glassmorphic interface with connection status badge, live track card, optimistic button response, and versioning footer (`v1.1.0`) + Support ♡.
 
 ### Building in Android Studio
 1. Open **Android Studio**.
