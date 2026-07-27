@@ -8,7 +8,7 @@
   <br>
 
   <img src="https://img.shields.io/badge/Platform-macOS%2014.0+-blue?logo=apple" alt="Platform: macOS 14.0+" />
-  <a href="updates.md"><img src="https://img.shields.io/badge/App-v1.2.1-green" alt="App Version: v1.2.1" /></a>
+  <a href="updates.md"><img src="https://img.shields.io/badge/App-v1.4.0-green" alt="App Version: v1.4.0" /></a>
   <img src="https://img.shields.io/badge/Built%20with-Swift%205%20%2B%20WKWebView-orange?logo=swift" alt="Built with Swift 5 + WKWebView" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue" alt="License: Apache 2.0" /></a>
   <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security-Policy-brightgreen" alt="Security Policy" /></a>
@@ -44,6 +44,7 @@ This project was built using Xcode and Swift, with developer assistance from:
 - **Background Playback** — Uses a persistent `NSPanel` with the WebView permanently embedded. Closing the UI parks the window offscreen; audio never stops.
 - **Instant Ad Skipping** — Detects ads via `.ad-showing` class → mutes → 16x speed → seeks to end → clicks skip. Ads vanish silently in milliseconds.
 - **Minimal Resource Usage** — Video element deflated to 1×1px. Quality forced to 144p. GPU raster bypassed. No MutationObservers — single 250ms polling loop handles everything.
+- **Native Two-Way BLE Remote Control & Metadata Sync** — Communicates natively over Bluetooth Low Energy (BLE) with an Android companion app (and Wear OS smartwatches like Galaxy Watch 4 Classic). Supports media transport control (Play/Pause, Next, Prev, Volume Up/Down) and streams live track metadata (`title`, `artist/channel`, `isPlaying` state) over BLE without requiring local Wi-Fi, IP configurations, or third-party bridge software.
 - **Locked-Down Watch Page** — The video player frame is slightly dimmed for visual comfort (0.8 opacity). Comments, action bars, and related items are completely hidden, while the remaining title and channel section below the player is permanently locked down, unclickable, and ghosted (0.6 opacity) to maintain a pristine, distraction-free pure audio experience. You can still copy the video link from the status bar right-click menu.
 - **Auto-Unmute** — Defeats YouTube mobile's autoplay muting by continuously forcing `video.muted = false` on watch pages.
 - **Hide Images & Avatars** — Toggle to visually hide all video thumbnails and channel profile pictures. Uses non-collapsing styling to preserve card grid alignment and keep video duration overlays fully visible.
@@ -133,6 +134,24 @@ If you prefer to compile the application locally yourself:
 2. Select the `yt-audio-air` target and select scheme **My Mac**.
 3. Build the project using `⌘B`.
 4. To package a standalone release binary, navigate to **Product > Archive**, then click **Distribute App** → **Copy App** to save the compiled `.app` bundle.
+
+---
+
+## Android & Wear OS Companion App (`android/`)
+
+`yt-audio-air` includes a native Kotlin Android companion project (`android/`) that pairs over Bluetooth Low Energy (BLE) without local Wi-Fi or IP configuration.
+
+### Features
+- **Phone Lock Screen & Notification Card**: Displays real-time song title, channel name, album artwork, and transport controls (Play/Pause, Next, Prev, Volume Seekbar).
+- **Wear OS / Galaxy Watch 4 Classic**: Native wrist media controls and bezel volume dial integration.
+- **Interactive Dark UI**: Dark glassmorphic interface with connection status badge, live track card, optimistic button response, versioning footer (`v1.0.0`), and Support Me link.
+
+### Building in Android Studio
+1. Open **Android Studio**.
+2. Select **Open** and navigate to the `android/` directory:
+   `yt-audio-air/android`
+3. Click **Sync Project with Gradle Files**.
+4. Connect your Android phone via USB (with USB Debugging enabled) and click **Run (▶)** (`Shift + F10`).
 
 ---
 

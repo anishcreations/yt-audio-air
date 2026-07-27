@@ -1,37 +1,23 @@
-# Xcode
-#
-# Reference: https://github.com/github/gitignore/blob/main/Swift.gitignore
-
-# Build artifacts
+# IDE / Editor
+.idea/
+.vscode/
+.DS_Store
 build/
 DerivedData/
-
-# Personal settings / User state
-*.xcuserstate
-project.xcworkspace/xcuserdata/
+*.xcworkspace
 *.xcuserdatad
-xcuserdata/
-
-# Crash logs & backups
-*.crash
-*.crashtable
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Log files
 *.log
 
-# Compiled applications / binaries
-*.app/
-*.app.dSYM/
-
-# notes for me
-new-feat.md
-note.md
+# Android / Gradle
+.gradle/
+android/.gradle/
+android/app/build/
+android/build/
+android/.idea/
+android/*.iml
+android/app/*.iml
+local.properties
+.navigation/
+captures/
+*.apk
+*.aab

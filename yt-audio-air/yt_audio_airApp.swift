@@ -38,7 +38,7 @@ class PlayerPanel: NSPanel {
 
 // MARK: - AppDelegate
 
-class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptMessageHandler {
     static private(set) var shared: AppDelegate?
     
     var statusItem: NSStatusItem?
@@ -74,6 +74,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         setupPlayerWindow()
         setupStatusItem()
         disableAppNap()
+        
+        // Start BLE Peripheral Media Server
+        BLEMediaServer.shared.start()
     }
     
     // MARK: - WKWebView Setup
@@ -88,6 +91,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         
         // Default data store for cookie persistence (Google auth, history, playlists)
         configuration.websiteDataStore = WKWebsiteDataStore.default()
+        
+        // Register script message handler for BLE metadata sync
+        configuration.userContentController.add(self, name: "bleMetadata")
         
         // ── Visibility API Override (document start) ──
         // Forces YouTube to believe the tab is always visible even when
@@ -441,6 +447,62 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
                         if (playBtn && playBtn.offsetHeight > 0) {
                             playBtn.click();
                         }
+                    }
+                }
+
+                // Extract video playing state
+                var video = document.querySelector('video') || document.querySelector('.html5-main-video');
+                var isPlaying = false;
+                if (video) {
+                    isPlaying = (!video.paused && !video.ended);
+                } else {
+                    var pauseBtn = document.querySelector('button[aria-label="Pause"], button[aria-label="Pause video"], .player-control-play[aria-label*="Pause"]');
+                    if (pauseBtn) isPlaying = true;
+                }
+
+                // Extract track metadata for BLE sync
+                var metaTitle = '';
+                var metaArtist = '';
+
+                // 1. Try DOM elements first
+                var titleEl = document.querySelector('h1.slim-video-information-title, .slim-video-metadata-title, .watch-headline h1, ytm-slim-owner-renderer + h1, .ytm-watch-title, h1');
+                if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 0) {
+                    metaTitle = titleEl.innerText.trim();
+                }
+
+                // 2. Fallback to document.title
+                if (!metaTitle || metaTitle.toLowerCase() === 'youtube') {
+                    var rawTitle = document.title || '';
+                    rawTitle = rawTitle.replace(/^(\\(\\d+\\)\\s*)?/, '').replace(/\\s*-\\s*YouTube$/gi, '').trim();
+                    if (rawTitle.indexOf(' - ') !== -1) {
+                        var parts = rawTitle.split(' - ');
+                        metaTitle = parts[0].trim();
+                        metaArtist = parts.slice(1).join(' - ').trim();
+                    } else {
+                        metaTitle = rawTitle;
+                    }
+                }
+
+                // 3. Extract channel / artist if not set
+                if (!metaArtist || metaArtist.toLowerCase() === 'youtube') {
+                    var artistEl = document.querySelector('.slim-owner-icon-and-title .slim-owner-name, ytm-slim-owner-renderer .slim-owner-name, .owner-name, .slim-owner-name, a[href*="/@"]');
+                    if (artistEl && artistEl.innerText && artistEl.innerText.trim().length > 0) {
+                        metaArtist = artistEl.innerText.trim();
+                    }
+                }
+
+                if (!metaTitle) metaTitle = 'YT Audio Air';
+                if (!metaArtist) metaArtist = 'YouTube';
+
+                var metaKey = metaTitle + '|' + metaArtist + '|' + isPlaying;
+                if (window.__lastMetaKey !== metaKey) {
+                    window.__lastMetaKey = metaKey;
+                    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.bleMetadata) {
+                        window.webkit.messageHandlers.bleMetadata.postMessage({
+                            title: metaTitle,
+                            artist: metaArtist,
+                            isPlaying: isPlaying
+                        });
                     }
                 }
             }
@@ -830,6 +892,90 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             decisionHandler(.cancel)
         } else {
             decisionHandler(.allow)
+        }
+    }
+    
+    // MARK: - WKScriptMessageHandler
+    
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "bleMetadata", let dict = message.body as? [String: Any] {
+            let title = dict["title"] as? String ?? ""
+            let artist = dict["artist"] as? String ?? ""
+            let isPlaying = dict["isPlaying"] as? Bool ?? false
+            BLEMediaServer.shared.broadcastMetadata(title: title, artist: artist, isPlaying: isPlaying)
+        }
+    }
+    
+    // MARK: - Remote BLE Media Commands
+    
+    func handleRemoteCommand(_ commandByte: UInt8) {
+        guard let command = BLEMediaServer.Command(rawValue: commandByte), let wv = webView else { return }
+        
+        switch command {
+        case .togglePlayPause:
+            let js = """
+            (function() {
+                var v = document.querySelector('video');
+                if (v) {
+                    if (v.paused) {
+                        v.play();
+                    } else {
+                        v.pause();
+                    }
+                } else {
+                    var btn = document.querySelector('button.player-control-play, .player-play-button, .ytp-large-play-button, button[aria-label="Play"], button[aria-label="Pause"], .ytm-custom-control');
+                    if (btn) btn.click();
+                }
+            })();
+            """
+            wv.evaluateJavaScript(js, completionHandler: nil)
+            
+        case .nextTrack:
+            let js = """
+            (function() {
+                var nextBtn = document.querySelector('.player-control-next, button[aria-label="Next video"], .ytp-next-button, button[aria-label="Next"]');
+                if (nextBtn && nextBtn.offsetHeight > 0) {
+                    nextBtn.click();
+                } else {
+                    window.history.forward();
+                }
+            })();
+            """
+            wv.evaluateJavaScript(js, completionHandler: nil)
+            
+        case .previousTrack:
+            let js = """
+            (function() {
+                var prevBtn = document.querySelector('.player-control-prev, button[aria-label="Previous video"], .ytp-prev-button, button[aria-label="Previous"]');
+                if (prevBtn && prevBtn.offsetHeight > 0) {
+                    prevBtn.click();
+                } else {
+                    window.history.back();
+                }
+            })();
+            """
+            wv.evaluateJavaScript(js, completionHandler: nil)
+            
+        case .volumeUp:
+            let script = "set volume output volume ((output volume of (get volume settings)) + 6.25)"
+            if let appleScript = NSAppleScript(source: script) {
+                var error: NSDictionary?
+                appleScript.executeAndReturnError(&error)
+            }
+            let js = """
+            (function() {
+                var videos = document.querySelectorAll('video');
+                videos.forEach(function(v) { v.muted = false; });
+            })();
+            """
+            wv.evaluateJavaScript(js, completionHandler: nil)
+            
+        case .volumeDown:
+            let script = "set volume output volume ((output volume of (get volume settings)) - 6.25)"
+            if let appleScript = NSAppleScript(source: script) {
+                var error: NSDictionary?
+                appleScript.executeAndReturnError(&error)
+            }
         }
     }
 }

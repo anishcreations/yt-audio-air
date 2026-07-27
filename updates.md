@@ -2,7 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v1.2.1] - 2026-07-02
+## [v1.4.0] - 2026-07-27
+
+### Added
+- **Native Two-Way BLE Remote Control System:** Integrated a dedicated `CoreBluetooth` GATT Peripheral (`BLEMediaServer`) running on a background queue.
+- **BLE Service & Characteristics:**
+  - **Service UUID:** `12345678-1234-1234-1234-123456789abc`
+  - **Control Characteristic (Write):** `87654321-4321-4321-4321-cba987654321` supporting 1-byte command protocol (`0x01` Play/Pause toggle, `0x02` Next, `0x03` Prev, `0x04` Vol Up, `0x05` Vol Down via native macOS system output volume control).
+  - **Metadata Characteristic (Notify/Read):** `98765432-4321-4321-4321-abcdef123456` broadcasting real-time JSON payloads (`{"title": "...", "artist": "...", "isPlaying": true}`).
+- **Live Metadata Sync:** Multi-tier DOM and `document.title` extractor automatically emits track title, channel name, and playing state changes whenever YouTube track or playback changes.
+- **Android Companion App v1.0.0 (`android/`)**:
+  - Standalone Gradle Android project structure ready to open & build in Android Studio.
+  - Interactive Dark Glassmorphic UI (`MainActivity.kt`) with live track metadata card, optimistic button toggles, versioning footer (`v1.0.0`), and `Support Me` button.
+  - Native Android Lock Screen Media Card, Notification Shade MediaSeekbar volume slider, and Wear OS Galaxy Watch 4 Classic controls over BLE.
+
+---
+
+## [v1.3.0] - 2026-07-02
 
 ### Added
 - **Mac Menu Bar App Icon:** Replaced the generic app icon in the menu bar with an app icon.

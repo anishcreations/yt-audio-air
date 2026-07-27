@@ -441,7 +441,7 @@ struct FooterView: View {
                         NSWorkspace.shared.open(url)
                     }
                 }) {
-                    Text("v1.2.1")
+                    Text("v1.4.0")
                         .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
                         .foregroundColor(hoverVersion ? .white.opacity(0.6) : .white.opacity(0.18))
                 }
