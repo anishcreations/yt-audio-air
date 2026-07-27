@@ -205,39 +205,42 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
         }
     }
     
+    private var lastBroadcastKey: String = ""
+
     // MARK: - Outgoing Metadata Broadcasts
     
     /// Broadcasts updated track title, artist, and playback state to connected BLE centrals.
-    func broadcastMetadata(title: String, artist: String, isPlaying: Bool) {
-        queue.async { [weak self] in
+    func broadcastMetadata(title: String, artist: String, isPlaying: Bool, volume: Int = 50) {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        let displayTitle = cleanTitle.isEmpty ? "YT Audio Air" : cleanTitle
+        let displayArtist = (cleanArtist.isEmpty || cleanArtist.lowercased() == "youtube") ? displayTitle : cleanArtist
+        
+        let metadataKey = "\(displayTitle)|\(displayArtist)|\(isPlaying)|\(volume)"
+        
+        DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             
-            let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-            let cleanArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard metadataKey != self.lastBroadcastKey else { return }
+            self.lastBroadcastKey = metadataKey
             
             let metadataDict: [String: Any] = [
-                "title": cleanTitle.isEmpty ? "YT Audio Air" : cleanTitle,
-                "artist": cleanArtist.isEmpty ? "YouTube" : cleanArtist,
-                "isPlaying": isPlaying
+                "title": displayTitle,
+                "artist": displayArtist,
+                "isPlaying": isPlaying,
+                "volume": volume
             ]
             
-            guard let jsonData = try? JSONSerialization.data(withJSONObject: metadataDict, options: []),
-                  let jsonString = String(data: jsonData, encoding: .utf8) else {
-                return
-            }
-            
-            // Avoid duplicate broadcasts
-            guard jsonString != self.currentMetadataJSON else { return }
-            self.currentMetadataJSON = jsonString
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: metadataDict, options: []) else { return }
+            self.currentMetadataJSON = String(data: jsonData, encoding: .utf8) ?? ""
             
             guard let peripheralManager = self.peripheralManager,
-                  let metadataChar = self.metadataCharacteristic else {
-                return
-            }
+                  let metadataChar = self.metadataCharacteristic else { return }
             
             let success = peripheralManager.updateValue(jsonData, for: metadataChar, onSubscribedCentrals: nil)
             if success {
-                print("[BLEMediaServer] Broadcasted metadata: \(jsonString)")
+                print("[BLEMediaServer] Broadcasted metadata: \(self.currentMetadataJSON)")
             } else {
                 print("[BLEMediaServer] Update value queued (buffer full).")
             }

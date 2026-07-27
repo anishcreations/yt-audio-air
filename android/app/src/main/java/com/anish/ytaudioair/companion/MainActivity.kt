@@ -126,10 +126,7 @@ class MainActivity : AppCompatActivity() {
         playPauseButton = Button(this).apply {
             text = "▶ Play"
             setOnClickListener {
-                // Immediate optimistic UI update for instant response!
-                localIsPlaying = !localIsPlaying
-                playPauseButton.text = if (localIsPlaying) "⏸ Pause" else "▶ Play"
-                BLEMediaService.instance?.sendBLECommand(BLEMediaService.CMD_TOGGLE_PLAY_PAUSE)
+                BLEMediaService.instance?.togglePlayPause()
             }
         }
 
@@ -174,7 +171,7 @@ class MainActivity : AppCompatActivity() {
 
         // 6. Minimal, soothing footer with version & support on separate lines
         val versionText = TextView(this).apply {
-            text = "v1.0.0"
+            text = "v1.1.0"
             setTextColor(Color.parseColor("#555555"))
             textSize = 11f
             gravity = Gravity.CENTER
@@ -204,7 +201,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(statusReceiver, IntentFilter(BLEMediaService.ACTION_BLE_STATUS), RECEIVER_EXPORTED)
+            registerReceiver(statusReceiver, IntentFilter(BLEMediaService.ACTION_BLE_STATUS), RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(statusReceiver, IntentFilter(BLEMediaService.ACTION_BLE_STATUS))
         }

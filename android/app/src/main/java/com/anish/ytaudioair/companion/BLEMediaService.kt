@@ -74,7 +74,10 @@ class BLEMediaService : Service() {
         private set
     var isMediaPlaying: Boolean = false
         private set
+    var currentVolume: Int = 50
+        private set
 
+    private var volumeProvider: VolumeProviderCompat? = null
     private var defaultArtworkBitmap: Bitmap? = null
 
     override fun onCreate() {
@@ -84,7 +87,11 @@ class BLEMediaService : Service() {
             defaultArtworkBitmap = createGradientArtwork()
             createNotificationChannel()
             setupMediaSession()
-            startForeground(NOTIFICATION_ID, buildNotification())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, buildNotification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+            } else {
+                startForeground(NOTIFICATION_ID, buildNotification())
+            }
             updateStatus("Scanning for Mac...")
             startBLEScan()
         } catch (e: Exception) {
@@ -113,6 +120,7 @@ class BLEMediaService : Service() {
 
     private fun broadcastUpdate() {
         val intent = Intent(ACTION_BLE_STATUS).apply {
+            setPackage(packageName)
             putExtra(EXTRA_STATUS, connectionStatus)
             putExtra(EXTRA_TITLE, currentTitle)
             putExtra(EXTRA_ARTIST, currentArtist)
@@ -135,17 +143,11 @@ class BLEMediaService : Service() {
 
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay() {
-                    sendBLECommand(CMD_TOGGLE_PLAY_PAUSE)
-                    isMediaPlaying = true
-                    updatePlaybackState(true)
-                    updateNotification()
+                    togglePlayPause()
                 }
 
                 override fun onPause() {
-                    sendBLECommand(CMD_TOGGLE_PLAY_PAUSE)
-                    isMediaPlaying = false
-                    updatePlaybackState(false)
-                    updateNotification()
+                    togglePlayPause()
                 }
 
                 override fun onSkipToNext() {
@@ -157,20 +159,30 @@ class BLEMediaService : Service() {
                 }
             })
 
-            // Enable Remote Volume Control with standard notification seekbar slider
-            var currentVol = 50
+            // Enable Remote Volume Control synced directly with Mac system output volume
+            var currentVol = currentVolume
             var lastVolTime = 0L
-            val volumeProvider = object : VolumeProviderCompat(VOLUME_CONTROL_ABSOLUTE, 100, currentVol) {
+            val provider = object : VolumeProviderCompat(VOLUME_CONTROL_ABSOLUTE, 100, currentVol) {
                 override fun onSetVolumeTo(volume: Int) {
                     val now = System.currentTimeMillis()
                     if (now - lastVolTime > 120) {
                         lastVolTime = now
-                        if (volume > currentVol) {
-                            sendBLECommand(CMD_VOLUME_UP)
-                        } else if (volume < currentVol) {
-                            sendBLECommand(CMD_VOLUME_DOWN)
+                        val diff = volume - currentVol
+                        val steps = Math.min(4, Math.max(-4, diff / 6))
+                        if (steps > 0) {
+                            for (i in 0 until steps) {
+                                sendBLECommand(CMD_VOLUME_UP)
+                            }
+                        } else if (steps < 0) {
+                            for (i in 0 until Math.abs(steps)) {
+                                sendBLECommand(CMD_VOLUME_DOWN)
+                            }
+                        } else {
+                            if (volume > currentVol) sendBLECommand(CMD_VOLUME_UP)
+                            else if (volume < currentVol) sendBLECommand(CMD_VOLUME_DOWN)
                         }
                         currentVol = volume
+                        currentVolume = volume
                     }
                 }
 
@@ -180,20 +192,23 @@ class BLEMediaService : Service() {
                         lastVolTime = now
                         if (direction > 0) {
                             sendBLECommand(CMD_VOLUME_UP)
-                            currentVol = Math.min(100, currentVol + 5)
+                            currentVol = Math.min(100, currentVol + 6)
+                            currentVolume = currentVol
                         } else if (direction < 0) {
                             sendBLECommand(CMD_VOLUME_DOWN)
-                            currentVol = Math.max(0, currentVol - 5)
+                            currentVol = Math.max(0, currentVol - 6)
+                            currentVolume = currentVol
                         }
                     }
                 }
             }
-            setPlaybackToRemote(volumeProvider)
+            volumeProvider = provider
+            setPlaybackToRemote(provider)
             isActive = true
         }
 
         updateMediaSessionMetadata(currentTitle, currentArtist)
-        updatePlaybackState(false)
+        updatePlaybackState(isMediaPlaying)
     }
 
     private fun updateMediaSessionMetadata(title: String, artist: String) {
@@ -264,6 +279,9 @@ class BLEMediaService : Service() {
                 this@BLEMediaService.isConnected = true
                 updateStatus("Connected to Mac!")
                 try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ECLAIR) {
+                        gatt?.requestMtu(512)
+                    }
                     gatt?.discoverServices()
                 } catch (e: SecurityException) {
                     e.printStackTrace()
@@ -274,6 +292,15 @@ class BLEMediaService : Service() {
                 metadataCharacteristic = null
                 updateStatus("Disconnected. Re-scanning...")
                 startBLEScan()
+            }
+        }
+
+        override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
+            android.util.Log.d("BLEMediaService", "BLE ATT MTU changed to $mtu (status = $status)")
+            try {
+                gatt?.discoverServices()
+            } catch (e: SecurityException) {
+                e.printStackTrace()
             }
         }
 
@@ -302,9 +329,33 @@ class BLEMediaService : Service() {
                         }
                     }
                     updateStatus("Connected (Synced)")
+                    // Read initial metadata immediately upon connection
+                    gatt.readCharacteristic(char)
                 } catch (e: SecurityException) {
                     e.printStackTrace()
                 }
+            }
+        }
+
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
+            status: Int
+        ) {
+            if (status == BluetoothGatt.GATT_SUCCESS && characteristic.uuid == METADATA_CHAR_UUID) {
+                parseAndApplyMetadata(String(value, Charsets.UTF_8))
+            }
+        }
+
+        @Deprecated("Deprecated for API < 33")
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt?,
+            characteristic: BluetoothGattCharacteristic?,
+            status: Int
+        ) {
+            if (status == BluetoothGatt.GATT_SUCCESS && characteristic?.uuid == METADATA_CHAR_UUID && characteristic.value != null) {
+                parseAndApplyMetadata(String(characteristic.value, Charsets.UTF_8))
             }
         }
 
@@ -329,6 +380,14 @@ class BLEMediaService : Service() {
         }
     }
 
+    fun togglePlayPause() {
+        isMediaPlaying = !isMediaPlaying
+        updatePlaybackState(isMediaPlaying)
+        updateNotification()
+        broadcastUpdate()
+        sendBLECommand(CMD_TOGGLE_PLAY_PAUSE)
+    }
+
     fun sendBLECommand(commandByte: Byte) {
         val gatt = bluetoothGatt ?: return
         val char = controlCharacteristic ?: return
@@ -348,18 +407,44 @@ class BLEMediaService : Service() {
 
     private fun parseAndApplyMetadata(jsonString: String) {
         try {
-            val json = JSONObject(jsonString)
-            currentTitle = json.optString("title", "YT Audio Air")
-            currentArtist = json.optString("artist", "YouTube")
-            isMediaPlaying = json.optBoolean("isPlaying", false)
+            android.util.Log.d("BLEMediaService", "Received BLE Metadata: $jsonString")
+            var title = currentTitle
+            var artist = currentArtist
+            var isPlaying = isMediaPlaying
+            var volume = currentVolume
 
-            updateMediaSessionMetadata(currentTitle, currentArtist)
-            updatePlaybackState(isMediaPlaying)
-            updateNotification()
-            broadcastUpdate()
+            try {
+                val json = JSONObject(jsonString)
+                title = json.optString("title", title)
+                val rawArtist = json.optString("artist", "")
+                artist = if (rawArtist.isEmpty() || rawArtist.equals("YouTube", ignoreCase = true)) title else rawArtist
+                isPlaying = json.optBoolean("isPlaying", isPlaying)
+                volume = json.optInt("volume", volume)
+            } catch (jsonErr: Exception) {
+                val titleMatch = Regex("\"title\":\"([^\"]+)\"").find(jsonString)
+                if (titleMatch != null) title = titleMatch.groupValues[1]
+                val artistMatch = Regex("\"artist\":\"([^\"]+)\"").find(jsonString)
+                if (artistMatch != null) artist = artistMatch.groupValues[1]
+                val isPlayingMatch = Regex("\"isPlaying\":(true|false)").find(jsonString)
+                if (isPlayingMatch != null) isPlaying = isPlayingMatch.groupValues[1] == "true"
+            }
 
+            currentTitle = title
+            currentArtist = if (artist.isEmpty() || artist.equals("YouTube", ignoreCase = true)) title else artist
+            isMediaPlaying = isPlaying
+            if (volume in 0..100) {
+                currentVolume = volume
+                volumeProvider?.currentVolume = volume
+            }
+
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                updateMediaSessionMetadata(currentTitle, currentArtist)
+                updatePlaybackState(isMediaPlaying)
+                updateNotification()
+                broadcastUpdate()
+            }
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("BLEMediaService", "Error parsing metadata: ${e.message}", e)
         }
     }
 
@@ -459,7 +544,7 @@ class BLEMediaService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "YT Audio Air BLE Remote",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
             )
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)

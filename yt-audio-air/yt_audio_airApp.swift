@@ -436,36 +436,45 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
                     video.loop = window.__loopPlayback === true;
                 }
 
-                /* Autoplay handler — only on watch pages, never on home/search */
+                var videos = document.querySelectorAll('video');
+                var video = videos.length > 0 ? videos[0] : null;
+
+                /* Autoplay & UI activator on watch pages */
                 var isWatchPage = window.location.pathname.indexOf('/watch') === 0;
-                if (isWatchPage && window.__needsAutoplay && !isAd) {
-                    if (!video.paused) {
-                        window.__needsAutoplay = false;
-                    } else {
+                if (isWatchPage && !isAd && video) {
+                    if (window.__needsAutoplay && video.paused) {
+                        video.muted = false;
                         video.play().catch(function(e) {});
-                        var playBtn = document.querySelector('button.player-control-play, .player-play-button, .ytp-large-play-button, button[aria-label="Play"], button[aria-label="Play video"], .ytm-custom-control');
-                        if (playBtn && playBtn.offsetHeight > 0) {
-                            playBtn.click();
-                        }
+                        var playBtn = document.querySelector('button.player-control-play, .player-play-button');
+                        if (playBtn && playBtn.offsetHeight > 0) playBtn.click();
+                    } else if (!video.paused) {
+                        window.__needsAutoplay = false;
                     }
                 }
 
-                // Extract video playing state
-                var video = document.querySelector('video') || document.querySelector('.html5-main-video');
+                // Extract video playing state & attach event listeners
                 var isPlaying = false;
                 if (video) {
                     isPlaying = (!video.paused && !video.ended);
+                    if (!video.__bleListenersAttached) {
+                        video.__bleListenersAttached = true;
+                        ['play', 'playing', 'pause', 'ended'].forEach(function(evtName) {
+                            video.addEventListener(evtName, function() {
+                                globalUpdate();
+                            });
+                        });
+                    }
                 } else {
                     var pauseBtn = document.querySelector('button[aria-label="Pause"], button[aria-label="Pause video"], .player-control-play[aria-label*="Pause"]');
                     if (pauseBtn) isPlaying = true;
                 }
 
-                // Extract track metadata for BLE sync
+                // Extract track metadata dynamically for BLE sync
                 var metaTitle = '';
                 var metaArtist = '';
 
-                // 1. Try DOM elements first
-                var titleEl = document.querySelector('h1.slim-video-information-title, .slim-video-metadata-title, .watch-headline h1, ytm-slim-owner-renderer + h1, .ytm-watch-title, h1');
+                // 1. Try DOM title elements first
+                var titleEl = document.querySelector('h1.slim-video-information-title, .slim-video-metadata-title, .watch-headline h1, ytm-slim-owner-renderer + h1, .ytm-watch-title, h1, .slim-video-information-title-text');
                 if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 0) {
                     metaTitle = titleEl.innerText.trim();
                 }
@@ -478,45 +487,60 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
                         var parts = rawTitle.split(' - ');
                         metaTitle = parts[0].trim();
                         metaArtist = parts.slice(1).join(' - ').trim();
-                    } else {
+                    } else if (rawTitle.length > 0 && rawTitle.toLowerCase() !== 'youtube') {
                         metaTitle = rawTitle;
                     }
                 }
 
-                // 3. Extract channel / artist if not set
+                // 3. Extract channel / artist from DOM elements
+                var artistEl = document.querySelector('.slim-owner-icon-and-title .slim-owner-name, ytm-slim-owner-renderer .slim-owner-name, .owner-name, .slim-owner-name, a[href*="/@"], .slim-owner-channel-name, .c3-profile-link, ytm-owner-renderer .slim-owner-name');
+                if (artistEl && artistEl.innerText && artistEl.innerText.trim().length > 0) {
+                    metaArtist = artistEl.innerText.trim();
+                }
+
+                // 4. Dynamic artist fallback from title separators if channel element is missing
                 if (!metaArtist || metaArtist.toLowerCase() === 'youtube') {
-                    var artistEl = document.querySelector('.slim-owner-icon-and-title .slim-owner-name, ytm-slim-owner-renderer .slim-owner-name, .owner-name, .slim-owner-name, a[href*="/@"]');
-                    if (artistEl && artistEl.innerText && artistEl.innerText.trim().length > 0) {
-                        metaArtist = artistEl.innerText.trim();
+                    if (metaTitle.indexOf(' - ') !== -1) {
+                        var parts = metaTitle.split(' - ');
+                        metaArtist = parts[0].trim();
+                    } else if (metaTitle.indexOf(' | ') !== -1) {
+                        var parts = metaTitle.split(' | ');
+                        metaArtist = parts[1].trim();
+                    } else if (metaTitle.indexOf(' ~ ') !== -1) {
+                        var parts = metaTitle.split(' ~ ');
+                        metaArtist = parts[0].trim();
+                    } else {
+                        metaArtist = metaTitle; // Dynamic fallback to current playing video title!
                     }
                 }
 
                 if (!metaTitle) metaTitle = 'YT Audio Air';
-                if (!metaArtist) metaArtist = 'YouTube';
+                if (!metaArtist) metaArtist = metaTitle;
 
-                var metaKey = metaTitle + '|' + metaArtist + '|' + isPlaying;
-                if (window.__lastMetaKey !== metaKey) {
-                    window.__lastMetaKey = metaKey;
-                    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.bleMetadata) {
-                        window.webkit.messageHandlers.bleMetadata.postMessage({
-                            title: metaTitle,
-                            artist: metaArtist,
-                            isPlaying: isPlaying
-                        });
-                    }
+                if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.bleMetadata) {
+                    window.webkit.messageHandlers.bleMetadata.postMessage({
+                        title: metaTitle,
+                        artist: metaArtist,
+                        isPlaying: isPlaying
+                    });
                 }
             }
 
-            setInterval(globalUpdate, 250);
+            setInterval(globalUpdate, 300);
 
-            // Flag autoplay only when navigating to a watch page
+            // Activate YouTube HTML5 player controls UI automatically & flag autoplay
             document.addEventListener('yt-navigate-finish', () => {
                 if (window.location.pathname.indexOf('/watch') === 0) {
                     window.__needsAutoplay = true;
+                    setTimeout(function() {
+                        var container = document.getElementById('player-container-id') || document.querySelector('.html5-video-player') || document.querySelector('video');
+                        if (container) {
+                            container.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                        }
+                    }, 300);
                 } else {
                     window.__needsAutoplay = false;
                 }
-                // Reset quality forcing for new video
                 var v = document.querySelector('video');
                 if (v) delete v.dataset.qualityForced;
                 var evt = new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: 100, clientY: 100 });
@@ -902,8 +926,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
             let title = dict["title"] as? String ?? ""
             let artist = dict["artist"] as? String ?? ""
             let isPlaying = dict["isPlaying"] as? Bool ?? false
-            BLEMediaServer.shared.broadcastMetadata(title: title, artist: artist, isPlaying: isPlaying)
+            let volume = getMacMasterVolume()
+            BLEMediaServer.shared.broadcastMetadata(title: title, artist: artist, isPlaying: isPlaying, volume: volume)
         }
+    }
+
+    private func getMacMasterVolume() -> Int {
+        let script = "output volume of (get volume settings)"
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            let descriptor = appleScript.executeAndReturnError(&error)
+            if error == nil {
+                return Int(descriptor.int32Value)
+            }
+        }
+        return 50
     }
     
     // MARK: - Remote BLE Media Commands
@@ -915,15 +952,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
         case .togglePlayPause:
             let js = """
             (function() {
-                var v = document.querySelector('video');
+                var v = document.querySelector('video') || document.querySelector('.html5-main-video');
                 if (v) {
                     if (v.paused) {
-                        v.play();
+                        v.play().catch(function(e) {});
                     } else {
                         v.pause();
                     }
                 } else {
-                    var btn = document.querySelector('button.player-control-play, .player-play-button, .ytp-large-play-button, button[aria-label="Play"], button[aria-label="Pause"], .ytm-custom-control');
+                    var btn = document.querySelector('button.player-control-play, .player-play-button');
                     if (btn) btn.click();
                 }
             })();
@@ -933,12 +970,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
         case .nextTrack:
             let js = """
             (function() {
-                var nextBtn = document.querySelector('.player-control-next, button[aria-label="Next video"], .ytp-next-button, button[aria-label="Next"]');
-                if (nextBtn && nextBtn.offsetHeight > 0) {
+                window.__needsAutoplay = true;
+                var nextBtn = document.querySelector('.player-control-next, button[aria-label="Next video"], .ytp-next-button, button[aria-label="Next"], ytm-compact-autoplay-renderer button');
+                if (nextBtn) {
                     nextBtn.click();
                 } else {
                     window.history.forward();
                 }
+                setTimeout(function() {
+                    var v = document.querySelector('video') || document.querySelector('.html5-main-video');
+                    if (v) v.play().catch(function(e) {});
+                    if (typeof globalUpdate === 'function') globalUpdate();
+                }, 500);
             })();
             """
             wv.evaluateJavaScript(js, completionHandler: nil)
@@ -946,12 +989,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
         case .previousTrack:
             let js = """
             (function() {
+                window.__needsAutoplay = true;
                 var prevBtn = document.querySelector('.player-control-prev, button[aria-label="Previous video"], .ytp-prev-button, button[aria-label="Previous"]');
-                if (prevBtn && prevBtn.offsetHeight > 0) {
+                if (prevBtn) {
                     prevBtn.click();
                 } else {
                     window.history.back();
                 }
+                setTimeout(function() {
+                    var v = document.querySelector('video') || document.querySelector('.html5-main-video');
+                    if (v) v.play().catch(function(e) {});
+                    if (typeof globalUpdate === 'function') globalUpdate();
+                }, 500);
             })();
             """
             wv.evaluateJavaScript(js, completionHandler: nil)

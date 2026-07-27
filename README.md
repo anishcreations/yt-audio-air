@@ -8,7 +8,7 @@
   <br>
 
   <img src="https://img.shields.io/badge/Platform-macOS%2014.0+-blue?logo=apple" alt="Platform: macOS 14.0+" />
-  <a href="updates.md"><img src="https://img.shields.io/badge/App-v1.4.0-green" alt="App Version: v1.4.0" /></a>
+  <a href="updates.md"><img src="https://img.shields.io/badge/App-v1.5.0-green" alt="App Version: v1.5.0" /></a>
   <img src="https://img.shields.io/badge/Built%20with-Swift%205%20%2B%20WKWebView-orange?logo=swift" alt="Built with Swift 5 + WKWebView" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue" alt="License: Apache 2.0" /></a>
   <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security-Policy-brightgreen" alt="Security Policy" /></a>
@@ -139,12 +139,12 @@ If you prefer to compile the application locally yourself:
 
 ## Android & Wear OS Companion App (`android/`)
 
-`yt-audio-air` includes a native Kotlin Android companion project (`android/`) that pairs over Bluetooth Low Energy (BLE) without local Wi-Fi or IP configuration.
+`yt-audio-air` includes a native Kotlin Android companion project (`android/`) that pairs over Bluetooth Low Energy (BLE) without local Wi-Fi or IP configuration. (See [android/UPDATES.md](android/UPDATES.md) for companion app release notes).
 
 ### Features
 - **Phone Lock Screen & Notification Card**: Displays real-time song title, channel name, album artwork, and transport controls (Play/Pause, Next, Prev, Volume Seekbar).
-- **Wear OS / Galaxy Watch 4 Classic**: Native wrist media controls and bezel volume dial integration.
-- **Interactive Dark UI**: Dark glassmorphic interface with connection status badge, live track card, optimistic button response, versioning footer (`v1.0.0`), and Support Me link.
+- **Wear OS / Galaxy Watches**: Intermediary wrist media controls and bezel volume dial (relayed via paired Android phone over BLE to Mac).
+- **Interactive Dark UI**: Dark glassmorphic interface with connection status badge, live track card, optimistic button response, versioning footer (`v1.1.0`), and Support Me link.
 
 ### Building in Android Studio
 1. Open **Android Studio**.

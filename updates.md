@@ -1,6 +1,17 @@
 # Updates
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project are documented in this file. 
+(See [android/UPDATES.md](android/UPDATES.md) for Android (Wear OS) companion app changelog).
+
+## [v1.5.0] - 2026-07-28
+
+### Added & Fixed
+- **HTML5 Player Controls Activation**: Watch page player UI activates automatically without manual overlay clicks.
+- **Native Mac Master Output Volume Sync**: Transmits real-time Mac master output volume in BLE GATT metadata (`"volume": 0-100`). Phone seekbar slider, physical volume keys, and Galaxy Watch 4 Classic rotating bezel dial step smoothly in sync with Mac volume.
+- **Dynamic Track & Artist Extraction**: Removed hardcoded fallback strings. Track title and channel name/artist are parsed dynamically from DOM elements or title separators (`Song - Artist`, `Title | Artist`).
+- **Android 14 Intra-App Broadcast Scope**: Added explicit package scoping (`setPackage(packageName)`) for intra-app broadcasts between `BLEMediaService` and `MainActivity`.
+- **Android Companion App v1.1.0**: see [changelog here](android/UPDATES.md)
+---
 
 ## [v1.4.0] - 2026-07-27
 
@@ -13,7 +24,7 @@ All notable changes to this project will be documented in this file.
 - **Live Metadata Sync:** Multi-tier DOM and `document.title` extractor automatically emits track title, channel name, and playing state changes whenever YouTube track or playback changes.
 - **Android Companion App v1.0.0 (`android/`)**:
   - Standalone Gradle Android project structure ready to open & build in Android Studio.
-  - Interactive Dark Glassmorphic UI (`MainActivity.kt`) with live track metadata card, optimistic button toggles, versioning footer (`v1.0.0`), and `Support Me` button.
+  - Interactive Dark Glassmorphic UI (`MainActivity.kt`) with live track metadata card, optimistic button toggles, versioning footer (`v1.0.0`), and `Support` button.
   - Native Android Lock Screen Media Card, Notification Shade MediaSeekbar volume slider, and Wear OS Galaxy Watch 4 Classic controls over BLE.
 
 ---
