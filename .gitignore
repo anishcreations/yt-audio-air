@@ -21,3 +21,7 @@ local.properties
 captures/
 *.apk
 *.aab
+
+# Private Notes
+note.md
+new-feat.md
