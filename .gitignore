@@ -8,6 +8,9 @@ DerivedData/
 *.xcuserdatad
 *.log
 
+# Local AI assistant state
+.claude/
+
 # Android / Gradle
 .gradle/
 android/.gradle/

@@ -24,6 +24,12 @@ struct ContentView: View {
     @State private var isLoading = false
     @State private var pageTitle = "YT Audio Air"
     @State private var showOptions = false
+    @State private var isHoveringPlayer = false
+    @State private var isWatchPage = false
+    @State private var playerIsPlaying = false
+    @State private var playbackTime = 0.0
+    @State private var playbackDuration = 0.0
+    @State private var isSeeking = false
     
     @AppStorage("hideImages") private var hideImages = false
     @AppStorage("grayscale") private var grayscale = false
@@ -58,6 +64,40 @@ struct ContentView: View {
                     )
                     .frame(height: 25)
                     .allowsHitTesting(false)
+
+                    if isWatchPage {
+                        VStack(spacing: 0) {
+                            Color.clear
+                                .frame(height: 38)
+                                .allowsHitTesting(false)
+
+                            ZStack(alignment: .bottom) {
+                                Color.clear
+                                    .contentShape(Rectangle())
+
+                                if isHoveringPlayer || isSeeking {
+                                    PlayerTransportControls(
+                                        isPlaying: playerIsPlaying,
+                                        currentTime: $playbackTime,
+                                        duration: playbackDuration,
+                                        isSeeking: $isSeeking
+                                    )
+                                        .padding(.bottom, 12)
+                                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                                }
+                            }
+                            .frame(height: 211)
+                            .onHover { hovering in
+                                withAnimation(.easeOut(duration: 0.12)) {
+                                    isHoveringPlayer = hovering
+                                }
+                            }
+
+                            Spacer(minLength: 0)
+                                .allowsHitTesting(false)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    }
                 }
                 
                 // ── Footer ──
@@ -226,6 +266,17 @@ struct ContentView: View {
                 showOptions = true
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("PlayerStateUpdated"))) { notification in
+            guard let state = notification.userInfo else { return }
+            playerIsPlaying = state["isPlaying"] as? Bool ?? false
+            if !isSeeking {
+                playbackDuration = max(0, (state["duration"] as? NSNumber)?.doubleValue ?? 0)
+                playbackTime = min(
+                    max(0, (state["currentTime"] as? NSNumber)?.doubleValue ?? 0),
+                    max(playbackDuration, 0)
+                )
+            }
+        }
     }
     
     private func startNavigationPolling() {
@@ -236,6 +287,14 @@ struct ContentView: View {
                 canGoForward = wv.canGoForward
                 isLoading = wv.isLoading
                 pageTitle = wv.title ?? "YT Audio Air"
+                let watchPage = wv.url?.path.hasPrefix("/watch") ?? false
+                isWatchPage = watchPage
+                if !watchPage {
+                    isHoveringPlayer = false
+                    isSeeking = false
+                    playbackTime = 0
+                    playbackDuration = 0
+                }
                 
                 let hide = UserDefaults.standard.bool(forKey: "hideImages")
                 let gray = UserDefaults.standard.bool(forKey: "grayscale")
@@ -256,6 +315,96 @@ struct ContentView: View {
                 """, completionHandler: nil)
             }
         }
+    }
+}
+
+// MARK: - Minimal Player Controls
+
+struct PlayerTransportControls: View {
+    let isPlaying: Bool
+    @Binding var currentTime: Double
+    let duration: Double
+    @Binding var isSeeking: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 7) {
+                Text(formatTime(currentTime))
+                    .frame(width: 34, alignment: .trailing)
+
+                Slider(
+                    value: $currentTime,
+                    in: 0...max(duration, 1),
+                    onEditingChanged: { editing in
+                        isSeeking = editing
+                        if !editing { AppDelegate.shared?.seek(to: currentTime) }
+                    }
+                )
+                .tint(.red)
+                .disabled(duration <= 0)
+
+                Text(formatTime(duration))
+                    .frame(width: 34, alignment: .leading)
+            }
+            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .foregroundColor(.white.opacity(0.72))
+
+            HStack(spacing: 10) {
+                controlButton(icon: "backward.end.fill", label: "Previous", command: .previousTrack)
+                controlButton(
+                    icon: isPlaying ? "pause.fill" : "play.fill",
+                    label: isPlaying ? "Pause" : "Play",
+                    command: .togglePlayPause,
+                    emphasized: true
+                )
+                controlButton(icon: "forward.end.fill", label: "Next", command: .nextTrack)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(width: 325)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.black.opacity(0.78))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.35), radius: 8, y: 3)
+    }
+
+    private func controlButton(
+        icon: String,
+        label: String,
+        command: BLEMediaServer.Command,
+        emphasized: Bool = false
+    ) -> some View {
+        Button {
+            AppDelegate.shared?.handleRemoteCommand(command.rawValue)
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: emphasized ? 13 : 11, weight: .semibold))
+                .foregroundColor(emphasized ? .black : .white)
+                .frame(width: emphasized ? 34 : 30, height: emphasized ? 34 : 30)
+                .background(
+                    Circle()
+                        .fill(emphasized ? Color.white : Color.white.opacity(0.12))
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private func formatTime(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds)
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let remainder = total % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, remainder)
+            : String(format: "%d:%02d", minutes, remainder)
     }
 }
 
@@ -437,11 +586,11 @@ struct FooterView: View {
                 
                 // Version (middle)
                 Button(action: {
-                    if let url = URL(string: "https://github.com/anisharyal09/yt-audio-air/blob/main/updates.md") {
+                    if let url = URL(string: "https://github.com/anisharyal09/yt-audio-air/blob/main/CHANGELOG.md") {
                         NSWorkspace.shared.open(url)
                     }
                 }) {
-                    Text("v1.5.0")
+                    Text("v1.6.0")
                         .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
                         .foregroundColor(hoverVersion ? .white.opacity(0.6) : .white.opacity(0.18))
                 }

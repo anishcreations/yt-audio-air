@@ -8,7 +8,7 @@
   <br>
 
   <img src="https://img.shields.io/badge/Platform-macOS%2014.0+-blue?logo=apple" alt="Platform: macOS 14.0+" />
-  <a href="updates.md"><img src="https://img.shields.io/badge/App-v1.5.0-green" alt="App Version: v1.5.0" /></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/App-v1.6.0-green" alt="App Version: v1.6.0" /></a>
   <img src="https://img.shields.io/badge/Built%20with-Swift%205%20%2B%20WKWebView-orange?logo=swift" alt="Built with Swift 5 + WKWebView" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue" alt="License: Apache 2.0" /></a>
   <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security-Policy-brightgreen" alt="Security Policy" /></a>
@@ -16,7 +16,7 @@
 
 A native macOS menu bar app for resource-efficient YouTube audio streaming.
 
-No Electron, no Chromium — built with Swift and Apple's system **WKWebView**. Sits in your menu bar, plays YouTube audio in the background, and uses a fraction of the RAM a browser tab would. (See [updates.md](updates.md) for the latest release notes).
+No Electron, no Chromium — built with Swift and Apple's system **WKWebView**. Sits in your menu bar, plays YouTube audio in the background, and uses a fraction of the RAM a browser tab would. (See [CHANGELOG.md](CHANGELOG.md) for the latest release notes).
 
 ---
 
@@ -32,9 +32,7 @@ Finding nothing that was minimal, lightweight, bug-free, and supported direct hi
 
 And **NO data is collected**, not even interested in doing so :)
 
-This project was built using Xcode and Swift, with developer assistance from:
-- **Open Code**
-- **Antigravity**
+This project was built using Xcode and Swift.
 
 
 ---
@@ -43,8 +41,9 @@ This project was built using Xcode and Swift, with developer assistance from:
 
 - **Background Playback** — Uses a persistent `NSPanel` with the WebView permanently embedded. Closing the UI parks the window offscreen; audio never stops.
 - **Instant Ad Skipping** — Detects ads via `.ad-showing` class → mutes → 16x speed → seeks to end → clicks skip. Ads vanish silently in milliseconds.
-- **Minimal Resource Usage** — Video element deflated to 1×1px. Quality forced to 144p. GPU raster bypassed. No MutationObservers — single 250ms polling loop handles everything.
-- **Native Two-Way BLE Remote Control & Metadata Sync** — Communicates natively over Bluetooth Low Energy (BLE) with an Android companion app (and Wear OS smartwatches like Galaxy Watch 4 Classic). Supports media transport control (Play/Pause, Next, Prev, Volume Up/Down) and streams live track metadata (`title`, `artist/channel`, `isPlaying` state) over BLE without requiring local Wi-Fi, IP configurations, or third-party bridge software.
+- **Minimal Resource Usage** — Video element deflated to 1×1px. Quality forced to 144p. GPU raster bypassed. No MutationObservers — single 300ms polling loop handles everything.
+- **Native Two-Way BLE Remote Control & Metadata Sync** — Communicates natively over Bluetooth Low Energy (BLE) with an Android companion app (and Wear OS smartwatches like Galaxy Watch 4 Classic). Supports reliable repeated media transport control (Play/Pause, Next, Prev, Volume Up/Down) and streams live track metadata (`title`, `artist/channel`, `isPlaying` state) over BLE without requiring local Wi-Fi, IP configurations, or third-party bridge software.
+- **Native Player Controls** — Hovering over the audio player reveals a lightweight macOS control surface with Previous, Play/Pause, Next, current time, duration, and seeking while YouTube's full player chrome remains hidden.
 - **Locked-Down Watch Page** — The video player frame is slightly dimmed for visual comfort (0.8 opacity). Comments, action bars, and related items are completely hidden, while the remaining title and channel section below the player is permanently locked down, unclickable, and ghosted (0.6 opacity) to maintain a pristine, distraction-free pure audio experience. You can still copy the video link from the status bar right-click menu.
 - **Auto-Unmute** — Defeats YouTube mobile's autoplay muting by continuously forcing `video.muted = false` on watch pages.
 - **Hide Images & Avatars** — Toggle to visually hide all video thumbnails and channel profile pictures. Uses non-collapsing styling to preserve card grid alignment and keep video duration overlays fully visible.
@@ -81,8 +80,8 @@ Uses YouTube's own `.ad-showing` class on the player element — no overlay heur
 - **Image Hiding**: Injects dynamic CSS to set `opacity: 0` on `img` and `lazy-image` elements rather than `display: none`. This preserves the dimensions of card containers, allowing video duration text overlays to display perfectly on top of dark placeholder backgrounds.
 - **Grayscale Mode**: Injects a root-level `filter: grayscale(100%)` rule on the `html` tag. To keep the slide-in header functional during scroll under a root-level filter, it applies layer acceleration (`will-change: transform`) to YouTube's mobile header elements, forcing WebKit to create a separate compositing layer.
 
-### Unified 250ms Loop
-A single `setInterval(globalUpdate, 250)` replaces heavy DOM observers. Each tick handles ad skipping, 144p quality enforcement, autoplay initiation, force-unmuting, and dynamic preference evaluation.
+### Unified 300ms Loop
+A single `setInterval(globalUpdate, 300)` replaces heavy DOM observers. Each tick handles ad skipping, 144p quality enforcement, autoplay initiation, force-unmuting, and dynamic preference evaluation.
 
 ---
 
@@ -142,9 +141,9 @@ If you prefer to compile the application locally yourself:
 `yt-audio-air` includes a native Kotlin Android companion project (`android/`) that pairs over Bluetooth Low Energy (BLE) without local Wi-Fi or IP configuration. (See [android/UPDATES.md](android/UPDATES.md) for companion app release notes).
 
 ### Features
-- **Phone Lock Screen & Notification Card**: Displays real-time song title, channel name, album artwork, and transport controls (Play/Pause, Next, Prev, Volume Seekbar).
+- **Phone Lock Screen & Notification Card**: Displays real-time song title, channel name, album artwork, and transport controls (Play/Pause, Next, Prev, synchronized volume buttons and seekbar).
 - **Wear OS / Galaxy Watches**: Intermediary wrist media controls and bezel volume dial (relayed via paired Android phone over BLE to Mac).
-- **Interactive Dark UI**: Dark glassmorphic interface with connection status badge, live track card, optimistic button response, and versioning footer (`v1.1.0`) + Support ♡.
+- **Interactive Dark UI**: Dark glassmorphic interface with connection status badge, live track card, optimistic button response, and versioning footer (`v1.1.1`) + Support ♡.
 
 ### Building in Android Studio
 1. Open **Android Studio**.

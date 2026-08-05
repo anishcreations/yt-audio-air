@@ -149,11 +149,11 @@ class MainActivity : AppCompatActivity() {
 
         val volDownBtn = Button(this).apply {
             text = "🔉 Vol -"
-            setOnClickListener { BLEMediaService.instance?.sendBLECommand(BLEMediaService.CMD_VOLUME_DOWN) }
+            setOnClickListener { BLEMediaService.instance?.adjustVolumeDown() }
         }
         val volUpBtn = Button(this).apply {
             text = "🔊 Vol +"
-            setOnClickListener { BLEMediaService.instance?.sendBLECommand(BLEMediaService.CMD_VOLUME_UP) }
+            setOnClickListener { BLEMediaService.instance?.adjustVolumeUp() }
         }
 
         volumeLayout.addView(volDownBtn)
@@ -171,7 +171,7 @@ class MainActivity : AppCompatActivity() {
 
         // 6. Minimal, soothing footer with version & support on separate lines
         val versionText = TextView(this).apply {
-            text = "v1.1.0"
+            text = "v1.1.1"
             setTextColor(Color.parseColor("#555555"))
             textSize = 11f
             gravity = Gravity.CENTER

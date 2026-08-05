@@ -33,6 +33,7 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
         case previousTrack   = 0x03
         case volumeUp        = 0x04
         case volumeDown      = 0x05
+        case setVolume       = 0x06
     }
     
     // MARK: - Properties
@@ -148,9 +149,17 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
             
             print(String(format: "[BLEMediaServer] Received command byte: 0x%02X", commandByte))
             
+            let volume = commandByte == Command.setVolume.rawValue && data.count >= 2
+                ? min(data[data.startIndex + 1], 100)
+                : nil
+
             // Dispatch command execution to main thread
             DispatchQueue.main.async {
-                AppDelegate.shared?.handleRemoteCommand(commandByte)
+                if let volume {
+                    AppDelegate.shared?.setSystemVolume(volume)
+                } else {
+                    AppDelegate.shared?.handleRemoteCommand(commandByte)
+                }
             }
             
             peripheral.respond(to: request, withResult: .success)

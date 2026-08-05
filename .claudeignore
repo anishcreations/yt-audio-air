@@ -1,0 +1,19 @@
+# macOS & Xcode build ignores
+build/
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+.git/
+.DS_Store
+
+# Android & Kotlin build ignores
+.idea/
+.gradle/
+android/.gradle/
+android/build/
+android/app/build/
+android/captures/
+*.apk
+*.aab
+*.class
+*.jar

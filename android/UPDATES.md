@@ -4,6 +4,13 @@ All notable changes to the **YT Audio Air Companion App** (`android/`) are docum
 
 ---
 
+## [v1.1.1] - 2026-08-05
+
+### Fixed
+- **Exact Slider Volume Sync**: Phone slider positions now use a debounced absolute BLE command, so large jumps such as 100% to 0% reach the exact Mac output volume instead of being capped at four incremental steps. Phone buttons and Wear OS adjustments remain incremental and update the local `VolumeProvider` immediately.
+
+---
+
 ## [v1.1.0] - 2026-07-28
 
 ### Added & Fixed

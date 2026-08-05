@@ -3,6 +3,19 @@
 All notable changes to this project are documented in this file. 
 (See [android/UPDATES.md](android/UPDATES.md) for Android (Wear OS) companion app changelog).
 
+## [v1.6.0] - 2026-08-05
+
+### Fixed
+- **Reliable Repeated Remote Navigation**: Routes Next and Previous through YouTube's player API instead of transient mobile controls or browser history, allowing consecutive phone and Wear OS commands without tapping the player between tracks.
+- **Background Transport Stability**: Guards overlapping queue commands while YouTube rebuilds its SPA player, preventing rapid Next/Previous sequences from leaving the page in a delayed or empty loading state.
+- **Immediate Popover Redraw**: Refreshes the existing offscreen WebView layers when the menu-bar player opens, without reloading the page or interrupting background audio.
+
+### Changed
+- **Native Seekable Hover Controls**: Replaces broad YouTube control-overlay activation with lightweight native Previous, Play/Pause, Next, current-time, duration, and seek controls while the full YouTube chrome remains hidden.
+- **(Remote) Android Companion App v1.1.1**: Sends phone slider positions as exact 0-100 Mac volume targets while keeping phone buttons and Wear OS adjustments synchronized incrementally (see [Companion Changelog](android/UPDATES.md)).
+
+---
+
 ## [v1.5.0] - 2026-07-28
 
 ### Added & Fixed
@@ -65,7 +78,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 - **Right-Aligned Settings Toggles** — Redesigned the options popover UI to right-align the switch controls and left-align the labels.
 - **High-Res Header Icon** — Replaced the low-resolution header assets with a single high-resolution source image mapped to all scales, ensuring sharp retina-friendly scaling at `30x30` points in the header layout.
-- **Changelog footer links** — Changed the version text in the footer to a clickable button that links directly to this `updates.md` file and displays a detailed hover tooltip and update coffee link.
+- **Changelog footer links** — Changed the version text in the footer to a clickable button that links directly to this changelog and displays a detailed hover tooltip and update coffee link.
 
 ---
 

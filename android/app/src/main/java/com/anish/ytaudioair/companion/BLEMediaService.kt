@@ -18,7 +18,9 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.ParcelUuid
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
@@ -42,6 +44,7 @@ class BLEMediaService : Service() {
         const val CMD_PREV_TRACK: Byte       = 0x03
         const val CMD_VOLUME_UP: Byte        = 0x04
         const val CMD_VOLUME_DOWN: Byte      = 0x05
+        const val CMD_SET_VOLUME: Byte       = 0x06
 
         const val ACTION_BLE_STATUS = "com.anish.ytaudioair.companion.BLE_STATUS"
         const val ACTION_MEDIA_CONTROL = "com.anish.ytaudioair.companion.MEDIA_CONTROL"
@@ -78,6 +81,12 @@ class BLEMediaService : Service() {
         private set
 
     private var volumeProvider: VolumeProviderCompat? = null
+    private val volumeCommandHandler = Handler(Looper.getMainLooper())
+    private var pendingAbsoluteVolume: Int? = null
+    private val sendPendingAbsoluteVolume = Runnable {
+        pendingAbsoluteVolume?.let(::sendAbsoluteVolume)
+        pendingAbsoluteVolume = null
+    }
     private var defaultArtworkBitmap: Bitmap? = null
 
     override fun onCreate() {
@@ -160,30 +169,16 @@ class BLEMediaService : Service() {
             })
 
             // Enable Remote Volume Control synced directly with Mac system output volume
-            var currentVol = currentVolume
             var lastVolTime = 0L
-            val provider = object : VolumeProviderCompat(VOLUME_CONTROL_ABSOLUTE, 100, currentVol) {
+            val provider = object : VolumeProviderCompat(VOLUME_CONTROL_ABSOLUTE, 100, currentVolume) {
                 override fun onSetVolumeTo(volume: Int) {
-                    val now = System.currentTimeMillis()
-                    if (now - lastVolTime > 120) {
-                        lastVolTime = now
-                        val diff = volume - currentVol
-                        val steps = Math.min(4, Math.max(-4, diff / 6))
-                        if (steps > 0) {
-                            for (i in 0 until steps) {
-                                sendBLECommand(CMD_VOLUME_UP)
-                            }
-                        } else if (steps < 0) {
-                            for (i in 0 until Math.abs(steps)) {
-                                sendBLECommand(CMD_VOLUME_DOWN)
-                            }
-                        } else {
-                            if (volume > currentVol) sendBLECommand(CMD_VOLUME_UP)
-                            else if (volume < currentVol) sendBLECommand(CMD_VOLUME_DOWN)
-                        }
-                        currentVol = volume
-                        currentVolume = volume
-                    }
+                    val target = volume.coerceIn(0, 100)
+                    this@BLEMediaService.currentVolume = target
+                    this.currentVolume = target
+
+                    pendingAbsoluteVolume = target
+                    volumeCommandHandler.removeCallbacks(sendPendingAbsoluteVolume)
+                    volumeCommandHandler.postDelayed(sendPendingAbsoluteVolume, 50)
                 }
 
                 override fun onAdjustVolume(direction: Int) {
@@ -191,13 +186,9 @@ class BLEMediaService : Service() {
                     if (now - lastVolTime > 120) {
                         lastVolTime = now
                         if (direction > 0) {
-                            sendBLECommand(CMD_VOLUME_UP)
-                            currentVol = Math.min(100, currentVol + 6)
-                            currentVolume = currentVol
+                            adjustVolumeUp()
                         } else if (direction < 0) {
-                            sendBLECommand(CMD_VOLUME_DOWN)
-                            currentVol = Math.max(0, currentVol - 6)
-                            currentVolume = currentVol
+                            adjustVolumeDown()
                         }
                     }
                 }
@@ -388,15 +379,35 @@ class BLEMediaService : Service() {
         sendBLECommand(CMD_TOGGLE_PLAY_PAUSE)
     }
 
+    fun adjustVolumeUp() {
+        sendBLECommand(CMD_VOLUME_UP)
+        currentVolume = Math.min(100, currentVolume + 6)
+        volumeProvider?.currentVolume = currentVolume
+    }
+
+    fun adjustVolumeDown() {
+        sendBLECommand(CMD_VOLUME_DOWN)
+        currentVolume = Math.max(0, currentVolume - 6)
+        volumeProvider?.currentVolume = currentVolume
+    }
+
     fun sendBLECommand(commandByte: Byte) {
+        writeBLEPayload(byteArrayOf(commandByte))
+    }
+
+    private fun sendAbsoluteVolume(volume: Int) {
+        writeBLEPayload(byteArrayOf(CMD_SET_VOLUME, volume.coerceIn(0, 100).toByte()))
+    }
+
+    private fun writeBLEPayload(payload: ByteArray) {
         val gatt = bluetoothGatt ?: return
         val char = controlCharacteristic ?: return
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeCharacteristic(char, byteArrayOf(commandByte), BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+                gatt.writeCharacteristic(char, payload, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
             } else {
-                char.value = byteArrayOf(commandByte)
+                char.value = payload
                 char.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                 gatt.writeCharacteristic(char)
             }
@@ -555,6 +566,7 @@ class BLEMediaService : Service() {
 
     override fun onDestroy() {
         instance = null
+        volumeCommandHandler.removeCallbacks(sendPendingAbsoluteVolume)
         try {
             bluetoothGatt?.disconnect()
             bluetoothGatt?.close()

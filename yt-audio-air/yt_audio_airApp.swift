@@ -138,6 +138,169 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
                 window.__needsAutoplay = false;
             }
 
+            var transport = window.__ytAudioAirTransport || {
+                busy: false,
+                queue: [],
+                retries: 0,
+                timer: null,
+                activeDirection: 0,
+                waiting: false,
+                startedAt: 0,
+                startingVideoId: null
+            };
+            if (!Array.isArray(transport.queue)) transport.queue = [];
+            transport.activeDirection = transport.activeDirection || 0;
+            transport.waiting = transport.waiting === true;
+            window.__ytAudioAirTransport = transport;
+
+            function transportButton(direction) {
+                var mobileButtons = document.querySelectorAll('#player-control-overlay .player-middle-controls-prev-next-button');
+                var button = mobileButtons.length > 0
+                    ? mobileButtons[direction > 0 ? mobileButtons.length - 1 : 0]
+                    : document.querySelector(direction > 0
+                        ? '.player-control-next, .ytp-next-button, button[aria-label="Next video"], button[aria-label="Next"]'
+                        : '.player-control-prev, .ytp-prev-button, button[aria-label="Previous video"], button[aria-label="Previous"]');
+                return button && button.isConnected && !button.disabled && button.getAttribute('aria-disabled') !== 'true'
+                    ? button
+                    : null;
+            }
+
+            function currentVideoId() {
+                var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+                if (player && typeof player.getVideoData === 'function') {
+                    try {
+                        var data = player.getVideoData();
+                        if (data && data.video_id) return data.video_id;
+                    } catch (_) {}
+                }
+                try { return new URL(window.location.href).searchParams.get('v'); } catch (_) { return null; }
+            }
+
+            function drainPendingTransport() {
+                if (transport.busy || transport.queue.length === 0) return;
+                var direction = transport.queue.shift();
+                transport.busy = true;
+                transport.activeDirection = direction;
+                transport.waiting = true;
+                transport.timer = setTimeout(function() {
+                    transport.timer = null;
+                    transport.busy = false;
+                    transport.activeDirection = 0;
+                    transport.waiting = false;
+                    window.__ytAudioAirNavigate(direction);
+                }, 150);
+            }
+
+            function releaseTransport(retryActive) {
+                var activeDirection = transport.activeDirection;
+                clearTimeout(transport.timer);
+                transport.timer = null;
+                transport.busy = false;
+                transport.retries = 0;
+                transport.activeDirection = 0;
+                transport.waiting = false;
+                transport.startedAt = 0;
+                transport.startingVideoId = null;
+                if (retryActive && activeDirection && transport.queue.length < 16) {
+                    transport.queue.unshift(activeDirection);
+                }
+                drainPendingTransport();
+            }
+
+            window.__ytAudioAirNavigate = function(direction) {
+                direction = direction < 0 ? -1 : 1;
+                if (transport.busy) {
+                    if (transport.queue.length < 16) transport.queue.push(direction);
+                    return 'queued';
+                }
+
+                var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+                var ready = !!player;
+                if (ready && typeof player.isReady === 'function') {
+                    try { ready = player.isReady(); } catch (_) { ready = false; }
+                }
+                var button = transportButton(direction);
+
+                if (!ready && !button) {
+                    if (transport.retries < 6) {
+                        transport.retries += 1;
+                        transport.busy = true;
+                        transport.activeDirection = direction;
+                        transport.waiting = true;
+                        clearTimeout(transport.timer);
+                        transport.timer = setTimeout(function() {
+                            transport.busy = false;
+                            transport.activeDirection = 0;
+                            transport.waiting = false;
+                            window.__ytAudioAirNavigate(direction);
+                        }, 150);
+                    } else {
+                        releaseTransport(false);
+                    }
+                    return 'waiting';
+                }
+
+                transport.retries = 0;
+                transport.busy = true;
+                transport.activeDirection = direction;
+                transport.waiting = false;
+                transport.startedAt = Date.now();
+                transport.startingVideoId = currentVideoId();
+                window.__needsAutoplay = true;
+
+                var method = direction > 0 ? 'nextVideo' : 'previousVideo';
+                var usedPlayerAPI = false;
+                var acted = false;
+
+                if (ready && typeof player[method] === 'function') {
+                    try {
+                        player[method]();
+                        usedPlayerAPI = true;
+                        acted = true;
+                    } catch (_) {}
+                }
+                if (!acted && button) {
+                    button.click();
+                    acted = true;
+                }
+                if (!acted) {
+                    releaseTransport(false);
+                    return 'unavailable';
+                }
+
+                clearTimeout(transport.timer);
+                function watchdog() {
+                    if (!transport.busy) return;
+                    if (currentVideoId() !== transport.startingVideoId) {
+                        releaseTransport(false);
+                        return;
+                    }
+
+                    var activePlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+                    var state = null;
+                    if (activePlayer && typeof activePlayer.getPlayerState === 'function') {
+                        try { state = activePlayer.getPlayerState(); } catch (_) {}
+                    }
+                    var rebuilding = !activePlayer || state === -1 || state === 3 || state === 5;
+                    if (rebuilding && Date.now() - transport.startedAt < 5000) {
+                        transport.timer = setTimeout(watchdog, 500);
+                    } else {
+                        releaseTransport(false);
+                    }
+                }
+                transport.timer = setTimeout(watchdog, 1500);
+
+                return usedPlayerAPI ? 'player-api' : 'button';
+            };
+
+            if (Array.isArray(window.__ytAudioAirBootstrapTransport)) {
+                window.__ytAudioAirBootstrapTransport.slice(0, 16).forEach(function(direction) {
+                    transport.queue.push(direction);
+                });
+                delete window.__ytAudioAirBootstrapTransport;
+                drainPendingTransport();
+            }
+
             var css = `
                 /* ═══ VIDEO VISUAL DEFLATION ═══
                    Keeps layout dimensions so YouTube player init passes,
@@ -264,6 +427,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
                     pointer-events: none !important;
                     opacity: 0.6 !important;
                     user-select: none !important;
+                }
+
+                /* Keep YouTube's player chrome inert; native SwiftUI controls
+                   provide the intentionally minimal transport UI. */
+                html[data-ytv-watch="true"] #player-container-id,
+                html[data-ytv-watch="true"] #movie_player,
+                html[data-ytv-watch="true"] .html5-video-player {
+                    cursor: default !important;
+                }
+                html[data-ytv-watch="true"] #player-control-container,
+                html[data-ytv-watch="true"] #player-control-overlay,
+                html[data-ytv-watch="true"] .player-controls-content,
+                html[data-ytv-watch="true"] .player-controls-background,
+                html[data-ytv-watch="true"] .player-controls-top,
+                html[data-ytv-watch="true"] .player-controls-middle,
+                html[data-ytv-watch="true"] .player-controls-bottom,
+                html[data-ytv-watch="true"] .ytp-chrome-bottom,
+                html[data-ytv-watch="true"] .ytp-chrome-controls {
+                    opacity: 0 !important;
+                    visibility: hidden !important;
+                    pointer-events: none !important;
                 }
             `;
 
@@ -521,28 +705,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
                     window.webkit.messageHandlers.bleMetadata.postMessage({
                         title: metaTitle,
                         artist: metaArtist,
-                        isPlaying: isPlaying
+                        isPlaying: isPlaying,
+                        currentTime: video && isFinite(video.currentTime) ? video.currentTime : 0,
+                        duration: video && isFinite(video.duration) ? video.duration : 0
                     });
                 }
             }
 
             setInterval(globalUpdate, 300);
 
-            // Activate YouTube HTML5 player controls UI automatically & flag autoplay
+            // Refresh player state after SPA navigation and flag autoplay
             document.addEventListener('yt-navigate-finish', () => {
                 if (window.location.pathname.indexOf('/watch') === 0) {
                     window.__needsAutoplay = true;
-                    setTimeout(function() {
-                        var container = document.getElementById('player-container-id') || document.querySelector('.html5-video-player') || document.querySelector('video');
-                        if (container) {
-                            container.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-                        }
-                    }, 300);
                 } else {
                     window.__needsAutoplay = false;
                 }
                 var v = document.querySelector('video');
                 if (v) delete v.dataset.qualityForced;
+                if (transport.busy) releaseTransport(transport.waiting);
                 var evt = new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: 100, clientY: 100 });
                 document.dispatchEvent(evt);
             });
@@ -686,6 +867,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
         playerWindow.setFrame(NSRect(x: x, y: y, width: windowWidth, height: windowHeight), display: true)
         playerWindow.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        // The WebView stays offscreen during background playback. Redraw its
+        // existing layers on reveal without reloading or disturbing playback.
+        playerWindow.contentView?.layoutSubtreeIfNeeded()
+        webView.layoutSubtreeIfNeeded()
+        webView.needsDisplay = true
+        webView.layer?.setNeedsDisplay()
+        playerWindow.displayIfNeeded()
         
         startMonitoringEvents()
     }
@@ -926,6 +1115,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
             let title = dict["title"] as? String ?? ""
             let artist = dict["artist"] as? String ?? ""
             let isPlaying = dict["isPlaying"] as? Bool ?? false
+            let currentTime = (dict["currentTime"] as? NSNumber)?.doubleValue ?? 0
+            let duration = (dict["duration"] as? NSNumber)?.doubleValue ?? 0
+            NotificationCenter.default.post(
+                name: Notification.Name("PlayerStateUpdated"),
+                object: nil,
+                userInfo: [
+                    "isPlaying": isPlaying,
+                    "currentTime": currentTime,
+                    "duration": duration
+                ]
+            )
             let volume = getMacMasterVolume()
             BLEMediaServer.shared.broadcastMetadata(title: title, artist: artist, isPlaying: isPlaying, volume: volume)
         }
@@ -944,6 +1144,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
     }
     
     // MARK: - Remote BLE Media Commands
+
+    func seek(to seconds: Double) {
+        guard seconds.isFinite, let wv = webView else { return }
+        let time = String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), max(0, seconds))
+        wv.evaluateJavaScript("""
+        (function() {
+            var v = document.querySelector('video') || document.querySelector('.html5-main-video');
+            if (v && isFinite(v.duration)) v.currentTime = Math.min(\(time), v.duration);
+        })();
+        """, completionHandler: nil)
+    }
+
+    func setSystemVolume(_ volume: UInt8) {
+        let target = min(Int(volume), 100)
+        let script = "set volume output volume \(target)"
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+        }
+
+        if target > 0 {
+            webView?.evaluateJavaScript("document.querySelectorAll('video').forEach(function(v) { v.muted = false; });", completionHandler: nil)
+        }
+    }
     
     func handleRemoteCommand(_ commandByte: UInt8) {
         guard let command = BLEMediaServer.Command(rawValue: commandByte), let wv = webView else { return }
@@ -971,11 +1195,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
             let js = """
             (function() {
                 window.__needsAutoplay = true;
-                var nextBtn = document.querySelector('.player-control-next, button[aria-label="Next video"], .ytp-next-button, button[aria-label="Next"], ytm-compact-autoplay-renderer button');
-                if (nextBtn) {
-                    nextBtn.click();
+                if (typeof window.__ytAudioAirNavigate === 'function') {
+                    window.__ytAudioAirNavigate(1);
                 } else {
-                    window.history.forward();
+                    if (!Array.isArray(window.__ytAudioAirBootstrapTransport)) window.__ytAudioAirBootstrapTransport = [];
+                    if (window.__ytAudioAirBootstrapTransport.length < 16) window.__ytAudioAirBootstrapTransport.push(1);
                 }
                 setTimeout(function() {
                     var v = document.querySelector('video') || document.querySelector('.html5-main-video');
@@ -990,11 +1214,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
             let js = """
             (function() {
                 window.__needsAutoplay = true;
-                var prevBtn = document.querySelector('.player-control-prev, button[aria-label="Previous video"], .ytp-prev-button, button[aria-label="Previous"]');
-                if (prevBtn) {
-                    prevBtn.click();
+                if (typeof window.__ytAudioAirNavigate === 'function') {
+                    window.__ytAudioAirNavigate(-1);
                 } else {
-                    window.history.back();
+                    if (!Array.isArray(window.__ytAudioAirBootstrapTransport)) window.__ytAudioAirBootstrapTransport = [];
+                    if (window.__ytAudioAirBootstrapTransport.length < 16) window.__ytAudioAirBootstrapTransport.push(-1);
                 }
                 setTimeout(function() {
                     var v = document.querySelector('video') || document.querySelector('.html5-main-video');
@@ -1025,6 +1249,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
                 var error: NSDictionary?
                 appleScript.executeAndReturnError(&error)
             }
+
+        case .setVolume:
+            break
         }
     }
 }
