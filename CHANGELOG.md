@@ -3,6 +3,23 @@
 All notable changes to this project are documented in this file. 
 (See [android/UPDATES.md](android/UPDATES.md) for Android (Wear OS) companion app changelog).
 
+## [v1.7.0] - 2026-08-07
+
+### Fixed
+- **Background Playback**: Keeps WebKit window-server-visible while hidden so playback transitions continue during calls, meetings, and work in other apps.
+- **Persistent Loop Playback**: Looping now continues when the player panel is closed or transparently parked.
+- **Autoplay Next**: Added explicit autoplay-next behavior with a default-on setting and player control.
+- **Playback End Handling**: Added app-level watchdog and end-event handling so WebKit cannot stall playback until the popup is reopened.
+- **Player Tap Target**: Clicking empty space in the black player area now toggles play/pause.
+
+### Added
+- **Playback Mode Controls**: Loop and Autoplay Next are available directly in the native player controls and Options panel.
+- **Phone Playback Modes**: Android controls can toggle Loop and Autoplay Next on the Mac from the companion UI and expanded media notification.
+- **Playback Precedence Label**: When both modes are enabled, the Mac and Android UI explicitly show that Loop takes precedence over Autoplay Next.
+
+### Changed
+- **Android Companion v1.2.0**: Serializes GATT setup to fix connected-but-unsynced sessions and adds BLE playback-mode commands with synchronized state.
+
 ## [v1.6.0] - 2026-08-05
 
 ### Fixed

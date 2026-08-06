@@ -34,6 +34,8 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
         case volumeUp        = 0x04
         case volumeDown      = 0x05
         case setVolume       = 0x06
+        case toggleLoop      = 0x07
+        case toggleAutoplayNext = 0x08
     }
     
     // MARK: - Properties
@@ -42,7 +44,7 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
     private var metadataCharacteristic: CBMutableCharacteristic?
     
     private let queue = DispatchQueue.main
-    private var currentMetadataJSON: String = "{\"title\":\"YT Audio Air\",\"artist\":\"YouTube\",\"isPlaying\":false}"
+    private var currentMetadataJSON: String = "{\"title\":\"YT Audio Air\",\"artist\":\"YouTube\",\"isPlaying\":false,\"loopPlayback\":false,\"autoplayNext\":true}"
     private var subscribedCentrals: [CBCentral] = []
     
     private override init() {
@@ -219,14 +221,21 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
     // MARK: - Outgoing Metadata Broadcasts
     
     /// Broadcasts updated track title, artist, and playback state to connected BLE centrals.
-    func broadcastMetadata(title: String, artist: String, isPlaying: Bool, volume: Int = 50) {
+    func broadcastMetadata(
+        title: String,
+        artist: String,
+        isPlaying: Bool,
+        volume: Int = 50,
+        loopPlayback: Bool = false,
+        autoplayNext: Bool = true
+    ) {
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
         
         let displayTitle = cleanTitle.isEmpty ? "YT Audio Air" : cleanTitle
         let displayArtist = (cleanArtist.isEmpty || cleanArtist.lowercased() == "youtube") ? displayTitle : cleanArtist
         
-        let metadataKey = "\(displayTitle)|\(displayArtist)|\(isPlaying)|\(volume)"
+        let metadataKey = "\(displayTitle)|\(displayArtist)|\(isPlaying)|\(volume)|\(loopPlayback)|\(autoplayNext)"
         
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -238,7 +247,9 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
                 "title": displayTitle,
                 "artist": displayArtist,
                 "isPlaying": isPlaying,
-                "volume": volume
+                "volume": volume,
+                "loopPlayback": loopPlayback,
+                "autoplayNext": autoplayNext
             ]
             
             guard let jsonData = try? JSONSerialization.data(withJSONObject: metadataDict, options: []) else { return }
@@ -252,6 +263,27 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
                 print("[BLEMediaServer] Broadcasted metadata: \(self.currentMetadataJSON)")
             } else {
                 print("[BLEMediaServer] Update value queued (buffer full).")
+            }
+        }
+    }
+
+    /// Updates mode state immediately, even if WebKit is temporarily quiet
+    /// while its panel is parked in the background.
+    func broadcastPlaybackPreferences(loopPlayback: Bool, autoplayNext: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let data = self.currentMetadataJSON.data(using: .utf8),
+                  var metadata = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                return
+            }
+            metadata["loopPlayback"] = loopPlayback
+            metadata["autoplayNext"] = autoplayNext
+            guard let updatedData = try? JSONSerialization.data(withJSONObject: metadata) else { return }
+            self.currentMetadataJSON = String(data: updatedData, encoding: .utf8) ?? self.currentMetadataJSON
+            self.lastBroadcastKey = ""
+            if let peripheralManager = self.peripheralManager,
+               let metadataChar = self.metadataCharacteristic {
+                peripheralManager.updateValue(updatedData, for: metadataChar, onSubscribedCentrals: nil)
             }
         }
     }

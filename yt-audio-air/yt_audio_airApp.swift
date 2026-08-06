@@ -43,12 +43,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
     
     var statusItem: NSStatusItem?
     var playerWindow: PlayerPanel!
+    private var isPlayerPresented = false
     
     // Persistent WebView — created once, lives forever
     var webView: WKWebView!
     
     // App Nap prevention token
     private var appNapActivity: NSObjectProtocol?
+    private var playbackWatchdog: DispatchSourceTimer?
+    private var playbackWatchdogIsRunning = false
     
     // Click-outside monitors
     private var localEventMonitor: Any?
@@ -64,7 +67,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
             "hideShorts": true,
             "hideSubscriptions": true,
             "premiumUser": false,
-            "loopPlayback": false
+            "loopPlayback": false,
+            "autoplayNext": true
         ])
         
         // Ensure the app runs as an accessory (hides from Dock)
@@ -74,9 +78,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
         setupPlayerWindow()
         setupStatusItem()
         disableAppNap()
+        startPlaybackWatchdog()
         
         // Start BLE Peripheral Media Server
         BLEMediaServer.shared.start()
+        BLEMediaServer.shared.broadcastPlaybackPreferences(
+            loopPlayback: UserDefaults.standard.bool(forKey: "loopPlayback"),
+            autoplayNext: UserDefaults.standard.bool(forKey: "autoplayNext")
+        )
     }
     
     // MARK: - WKWebView Setup
@@ -291,6 +300,45 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
                 transport.timer = setTimeout(watchdog, 1500);
 
                 return usedPlayerAPI ? 'player-api' : 'button';
+            };
+
+            window.__ytAudioAirMaintainPlayback = function(loopPlayback, autoplayNext) {
+                window.__loopPlayback = loopPlayback === true;
+                window.__autoplayNext = autoplayNext === true;
+
+                if (window.location.pathname.indexOf('/watch') !== 0) return 'not-watch-page';
+                if (document.querySelector('.ad-showing, .ad-interrupting')) return 'ad';
+
+                var video = document.querySelector('video') || document.querySelector('.html5-main-video');
+                if (!video || !isFinite(video.duration) || video.duration <= 0) return 'no-video';
+
+                var atEnd = video.ended || (
+                    video.paused &&
+                    video.currentTime > 0 &&
+                    video.currentTime >= video.duration - 0.25
+                );
+                if (!atEnd) {
+                    if (video.currentTime < video.duration - 1) window.__ytAudioAirHandledEnd = null;
+                    return 'playing';
+                }
+
+                var endKey = (currentVideoId() || window.location.href) + ':' + Math.round(video.duration * 10);
+                if (window.__ytAudioAirHandledEnd === endKey) return 'handled';
+                window.__ytAudioAirHandledEnd = endKey;
+
+                if (loopPlayback === true) {
+                    video.currentTime = 0;
+                    video.muted = false;
+                    window.__needsAutoplay = true;
+                    video.play().catch(function() {});
+                    return 'loop';
+                }
+                if (autoplayNext === true) {
+                    window.__needsAutoplay = true;
+                    window.__ytAudioAirNavigate(1);
+                    return 'next';
+                }
+                return 'stop';
             };
 
             if (Array.isArray(window.__ytAudioAirBootstrapTransport)) {
@@ -615,10 +663,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
                 if (!video.playsInline) video.playsInline = true;
                 if (!video.disableRemotePlayback) video.disableRemotePlayback = true;
 
-                // Apply loop setting
-                if (video.loop !== (window.__loopPlayback === true)) {
-                    video.loop = window.__loopPlayback === true;
-                }
+                // End-of-track behavior is handled explicitly so it remains
+                // reliable when YouTube replaces or pauses its media element.
+                if (video.loop) video.loop = false;
+                window.__ytAudioAirMaintainPlayback(
+                    window.__loopPlayback === true,
+                    window.__autoplayNext !== false
+                );
 
                 var videos = document.querySelectorAll('video');
                 var video = videos.length > 0 ? videos[0] : null;
@@ -714,6 +765,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
 
             setInterval(globalUpdate, 300);
 
+            // Intercept the media end before YouTube's own handlers can stop or
+            // advance it. The app's explicit loop/autoplay preferences win.
+            document.addEventListener('ended', function(event) {
+                if (!(event.target instanceof HTMLMediaElement)) return;
+                var shouldHandle = window.__loopPlayback === true || window.__autoplayNext !== false;
+                if (!shouldHandle) return;
+                event.stopImmediatePropagation();
+                window.__ytAudioAirMaintainPlayback(
+                    window.__loopPlayback === true,
+                    window.__autoplayNext !== false
+                );
+            }, true);
+
             // Refresh player state after SPA navigation and flag autoplay
             document.addEventListener('yt-navigate-finish', () => {
                 if (window.location.pathname.indexOf('/watch') === 0) {
@@ -748,7 +812,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
     
     private func setupPlayerWindow() {
         playerWindow = PlayerPanel(
-            contentRect: NSRect(x: -20000, y: -20000, width: 375, height: 550),
+            contentRect: NSRect(x: 0, y: 0, width: 375, height: 550),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -759,13 +823,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
         playerWindow.hasShadow = true
         playerWindow.backgroundColor = .clear
         playerWindow.isOpaque = false
+        playerWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         
         let hostingView = NSHostingView(rootView: ContentView())
         hostingView.frame = NSRect(x: 0, y: 0, width: 375, height: 550)
         hostingView.autoresizingMask = [.width, .height]
         
         playerWindow.contentView = hostingView
-        playerWindow.orderBack(nil)
+        playerWindow.alphaValue = 0.01
+        playerWindow.ignoresMouseEvents = true
+        playerWindow.hasShadow = false
+        parkWindowForBackgroundPlayback()
     }
     
     private func menuIconImage(from original: NSImage) -> NSImage {
@@ -835,7 +903,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
     }
     
     var isWindowVisible: Bool {
-        return playerWindow != nil && playerWindow.frame.origin.x > -10000
+        return isPlayerPresented
     }
     
     @objc func togglePopover() {
@@ -863,12 +931,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
         if let appIcon = NSImage(named: "AppIconImage") {
             button.image = activeImage(from: appIcon)
         }
-        
+
+        isPlayerPresented = true
+        playerWindow.alphaValue = 1
+        playerWindow.ignoresMouseEvents = false
+        playerWindow.hasShadow = true
         playerWindow.setFrame(NSRect(x: x, y: y, width: windowWidth, height: windowHeight), display: true)
         playerWindow.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
-        // The WebView stays offscreen during background playback. Redraw its
+        // The WebView stays transparently parked during background playback. Redraw its
         // existing layers on reveal without reloading or disturbing playback.
         playerWindow.contentView?.layoutSubtreeIfNeeded()
         webView.layoutSubtreeIfNeeded()
@@ -880,11 +952,33 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
     }
     
     func hideWindow() {
-        playerWindow.setFrame(NSRect(x: -20000, y: -20000, width: 375, height: 550), display: true)
+        isPlayerPresented = false
+        playerWindow.alphaValue = 0.01
+        playerWindow.ignoresMouseEvents = true
+        playerWindow.hasShadow = false
+        parkWindowForBackgroundPlayback()
         if let appIcon = NSImage(named: "AppIconImage") {
             statusItem?.button?.image = menuIconImage(from: appIcon)
         }
         stopMonitoringEvents()
+    }
+
+    // Keep a transparent sliver of the host window on a display. A fully
+    // offscreen window is treated as occluded by WebKit and can suspend the
+    // page's end-of-track and autoplay work even while audio is audible.
+    private func parkWindowForBackgroundPlayback() {
+        let screen = statusItem?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
+        let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        playerWindow.setFrame(
+            NSRect(
+                x: screenFrame.minX - 374,
+                y: screenFrame.minY,
+                width: 375,
+                height: 550
+            ),
+            display: false
+        )
+        playerWindow.orderFrontRegardless()
     }
     
     // MARK: - Click Outside Monitoring
@@ -1075,6 +1169,49 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
             reason: "YT Audio Air — background audio playback"
         )
     }
+
+    // This timer belongs to the application rather than the offscreen panel.
+    // Evaluating a small script here also wakes end-of-track handling when
+    // WebKit throttles page timers while the player UI is parked offscreen.
+    private func startPlaybackWatchdog() {
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 1, repeating: .milliseconds(500), leeway: .milliseconds(100))
+        timer.setEventHandler { [weak self] in
+            self?.updatePlaybackPreferences()
+        }
+        playbackWatchdog = timer
+        timer.resume()
+    }
+
+    func updatePlaybackPreferences() {
+        guard !playbackWatchdogIsRunning, let webView else { return }
+        playbackWatchdogIsRunning = true
+        let loop = UserDefaults.standard.bool(forKey: "loopPlayback")
+        let autoplay = UserDefaults.standard.bool(forKey: "autoplayNext")
+        webView.evaluateJavaScript("""
+        (function() {
+            window.__loopPlayback = \(loop);
+            window.__autoplayNext = \(autoplay);
+            if (typeof window.__ytAudioAirMaintainPlayback === 'function') {
+                return window.__ytAudioAirMaintainPlayback(\(loop), \(autoplay));
+            }
+            return 'not-ready';
+        })();
+        """) { [weak self] _, _ in
+            self?.playbackWatchdogIsRunning = false
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.playbackWatchdogIsRunning = false
+        }
+    }
+
+    func playbackPreferencesDidChange() {
+        updatePlaybackPreferences()
+        BLEMediaServer.shared.broadcastPlaybackPreferences(
+            loopPlayback: UserDefaults.standard.bool(forKey: "loopPlayback"),
+            autoplayNext: UserDefaults.standard.bool(forKey: "autoplayNext")
+        )
+    }
     
     // MARK: - WKNavigationDelegate
     
@@ -1117,6 +1254,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
             let isPlaying = dict["isPlaying"] as? Bool ?? false
             let currentTime = (dict["currentTime"] as? NSNumber)?.doubleValue ?? 0
             let duration = (dict["duration"] as? NSNumber)?.doubleValue ?? 0
+            let loopPlayback = UserDefaults.standard.bool(forKey: "loopPlayback")
+            let autoplayNext = UserDefaults.standard.bool(forKey: "autoplayNext")
             NotificationCenter.default.post(
                 name: Notification.Name("PlayerStateUpdated"),
                 object: nil,
@@ -1127,7 +1266,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
                 ]
             )
             let volume = getMacMasterVolume()
-            BLEMediaServer.shared.broadcastMetadata(title: title, artist: artist, isPlaying: isPlaying, volume: volume)
+            BLEMediaServer.shared.broadcastMetadata(
+                title: title,
+                artist: artist,
+                isPlaying: isPlaying,
+                volume: volume,
+                loopPlayback: loopPlayback,
+                autoplayNext: autoplayNext
+            )
         }
     }
 
@@ -1252,6 +1398,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
 
         case .setVolume:
             break
+        case .toggleLoop:
+            let enabled = !UserDefaults.standard.bool(forKey: "loopPlayback")
+            UserDefaults.standard.set(enabled, forKey: "loopPlayback")
+            playbackPreferencesDidChange()
+        case .toggleAutoplayNext:
+            let enabled = !UserDefaults.standard.bool(forKey: "autoplayNext")
+            UserDefaults.standard.set(enabled, forKey: "autoplayNext")
+            playbackPreferencesDidChange()
         }
     }
 }

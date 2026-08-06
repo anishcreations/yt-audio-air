@@ -28,6 +28,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var titleTextView: TextView
     private lateinit var artistTextView: TextView
     private lateinit var playPauseButton: Button
+    private lateinit var loopButton: Button
+    private lateinit var autoplayNextButton: Button
+    private lateinit var precedenceTextView: TextView
 
     private var localIsPlaying = false
 
@@ -38,9 +41,11 @@ class MainActivity : AppCompatActivity() {
                 val title = intent.getStringExtra(BLEMediaService.EXTRA_TITLE) ?: "YT Audio Air"
                 val artist = intent.getStringExtra(BLEMediaService.EXTRA_ARTIST) ?: "YouTube"
                 val isPlaying = intent.getBooleanExtra(BLEMediaService.EXTRA_IS_PLAYING, false)
+                val loopPlayback = intent.getBooleanExtra(BLEMediaService.EXTRA_LOOP_PLAYBACK, false)
+                val autoplayNext = intent.getBooleanExtra(BLEMediaService.EXTRA_AUTOPLAY_NEXT, true)
 
                 localIsPlaying = isPlaying
-                updateUI(status, title, artist, localIsPlaying)
+                updateUI(status, title, artist, localIsPlaying, loopPlayback, autoplayNext)
             }
         }
     }
@@ -140,6 +145,35 @@ class MainActivity : AppCompatActivity() {
         controlsLayout.addView(nextBtn)
         root.addView(controlsLayout)
 
+        // Playback mode controls stay available even when the Mac player is hidden.
+        val playbackModesLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, 8, 0, 0)
+        }
+
+        loopButton = Button(this).apply {
+            text = "↻ Loop: Off"
+            setOnClickListener { BLEMediaService.instance?.toggleLoopPlayback() }
+        }
+        autoplayNextButton = Button(this).apply {
+            text = "Next: On"
+            setOnClickListener { BLEMediaService.instance?.toggleAutoplayNext() }
+        }
+        playbackModesLayout.addView(loopButton)
+        playbackModesLayout.addView(autoplayNextButton)
+        root.addView(playbackModesLayout)
+
+        precedenceTextView = TextView(this).apply {
+            text = "Loop takes precedence over Autoplay Next"
+            setTextColor(Color.parseColor("#FFB74D"))
+            textSize = 11f
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(0, 8, 0, 0)
+        }
+        root.addView(precedenceTextView)
+
         // 5. Volume Controls Row
         val volumeLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -171,7 +205,7 @@ class MainActivity : AppCompatActivity() {
 
         // 6. Minimal, soothing footer with version & support on separate lines
         val versionText = TextView(this).apply {
-            text = "v1.1.1"
+            text = "v1.2.0"
             setTextColor(Color.parseColor("#555555"))
             textSize = 11f
             gravity = Gravity.CENTER
@@ -208,7 +242,14 @@ class MainActivity : AppCompatActivity() {
 
         BLEMediaService.instance?.let { service ->
             localIsPlaying = service.isMediaPlaying
-            updateUI(service.connectionStatus, service.currentTitle, service.currentArtist, localIsPlaying)
+            updateUI(
+                service.connectionStatus,
+                service.currentTitle,
+                service.currentArtist,
+                localIsPlaying,
+                service.isLoopPlayback,
+                service.isAutoplayNext
+            )
         }
     }
 
@@ -219,7 +260,14 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {}
     }
 
-    private fun updateUI(status: String, title: String, artist: String, isPlaying: Boolean) {
+    private fun updateUI(
+        status: String,
+        title: String,
+        artist: String,
+        isPlaying: Boolean,
+        loopPlayback: Boolean,
+        autoplayNext: Boolean
+    ) {
         statusTextView.text = if (status.contains("Ready") || status.contains("Connected")) "● $status" else "○ $status"
         if (status.contains("Ready") || status.contains("Connected")) {
             statusTextView.setTextColor(Color.parseColor("#4CAF50"))
@@ -231,6 +279,9 @@ class MainActivity : AppCompatActivity() {
         artistTextView.text = if (artist.isNotEmpty()) artist else "YouTube"
 
         playPauseButton.text = if (isPlaying) "⏸ Pause" else "▶ Play"
+        loopButton.text = if (loopPlayback) "↻ Loop: On" else "↻ Loop: Off"
+        autoplayNextButton.text = if (autoplayNext) "Next: On" else "Next: Off"
+        precedenceTextView.visibility = if (loopPlayback && autoplayNext) View.VISIBLE else View.GONE
     }
 
     private fun checkPermissionsAndStartService() {

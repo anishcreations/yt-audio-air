@@ -38,6 +38,7 @@ struct ContentView: View {
     @AppStorage("hideSubscriptions") private var hideSubscriptions = true
     @AppStorage("premiumUser") private var premiumUser = false
     @AppStorage("loopPlayback") private var loopPlayback = false
+    @AppStorage("autoplayNext") private var autoplayNext = true
     
     var body: some View {
         ZStack {
@@ -74,13 +75,18 @@ struct ContentView: View {
                             ZStack(alignment: .bottom) {
                                 Color.clear
                                     .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        AppDelegate.shared?.handleRemoteCommand(BLEMediaServer.Command.togglePlayPause.rawValue)
+                                    }
 
                                 if isHoveringPlayer || isSeeking {
                                     PlayerTransportControls(
                                         isPlaying: playerIsPlaying,
                                         currentTime: $playbackTime,
                                         duration: playbackDuration,
-                                        isSeeking: $isSeeking
+                                        isSeeking: $isSeeking,
+                                        loopPlayback: $loopPlayback,
+                                        autoplayNext: $autoplayNext
                                     )
                                         .padding(.bottom, 12)
                                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
@@ -217,6 +223,21 @@ struct ContentView: View {
                                 .toggleStyle(.switch)
                                 .labelsHidden()
                         }
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Autoplay Next")
+                                    .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                                    .foregroundColor(.white.opacity(0.85))
+                                Text("(Loop takes precedence)")
+                                    .font(.system(size: 9, weight: .regular, design: .rounded))
+                                    .foregroundColor(.white.opacity(0.45))
+                            }
+                            Spacer()
+                            Toggle("", isOn: $autoplayNext)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                        }
                         
                         Button(action: {
                             if let url = URL(string: "https://m.youtube.com") {
@@ -277,6 +298,12 @@ struct ContentView: View {
                 )
             }
         }
+        .onChange(of: loopPlayback) { _ in
+            AppDelegate.shared?.playbackPreferencesDidChange()
+        }
+        .onChange(of: autoplayNext) { _ in
+            AppDelegate.shared?.playbackPreferencesDidChange()
+        }
     }
     
     private func startNavigationPolling() {
@@ -303,6 +330,7 @@ struct ContentView: View {
                 let hideSub = UserDefaults.standard.bool(forKey: "hideSubscriptions")
                 let prem = UserDefaults.standard.bool(forKey: "premiumUser")
                 let loop = UserDefaults.standard.bool(forKey: "loopPlayback")
+                let autoplay = UserDefaults.standard.bool(forKey: "autoplayNext")
                 
                 wv.evaluateJavaScript("""
                     window.__hideImages = \(hide);
@@ -312,6 +340,7 @@ struct ContentView: View {
                     window.__hideSubscriptions = \(hideSub);
                     window.__premiumUser = \(prem);
                     window.__loopPlayback = \(loop);
+                    window.__autoplayNext = \(autoplay);
                 """, completionHandler: nil)
             }
         }
@@ -325,6 +354,8 @@ struct PlayerTransportControls: View {
     @Binding var currentTime: Double
     let duration: Double
     @Binding var isSeeking: Bool
+    @Binding var loopPlayback: Bool
+    @Binding var autoplayNext: Bool
 
     var body: some View {
         VStack(spacing: 8) {
@@ -350,6 +381,13 @@ struct PlayerTransportControls: View {
             .foregroundColor(.white.opacity(0.72))
 
             HStack(spacing: 10) {
+                playbackModeButton(
+                    icon: "repeat",
+                    label: "Loop Playback",
+                    isEnabled: loopPlayback
+                ) {
+                    loopPlayback.toggle()
+                }
                 controlButton(icon: "backward.end.fill", label: "Previous", command: .previousTrack)
                 controlButton(
                     icon: isPlaying ? "pause.fill" : "play.fill",
@@ -358,6 +396,20 @@ struct PlayerTransportControls: View {
                     emphasized: true
                 )
                 controlButton(icon: "forward.end.fill", label: "Next", command: .nextTrack)
+                playbackModeButton(
+                    icon: "forward.end.circle",
+                    label: "Autoplay Next",
+                    isEnabled: autoplayNext
+                ) {
+                    autoplayNext.toggle()
+                }
+            }
+
+            if loopPlayback && autoplayNext {
+                Text("Loop takes precedence over Autoplay Next")
+                    .font(.system(size: 8, weight: .medium, design: .rounded))
+                    .foregroundColor(.orange.opacity(0.85))
+                    .accessibilityLabel("Loop takes precedence over Autoplay Next")
             }
         }
         .padding(.horizontal, 12)
@@ -394,6 +446,29 @@ struct PlayerTransportControls: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+        .help(label)
+    }
+
+    private func playbackModeButton(
+        icon: String,
+        label: String,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(isEnabled ? .white : .white.opacity(0.45))
+                .frame(width: 28, height: 28)
+                .background(
+                    Circle()
+                        .fill(isEnabled ? Color.red.opacity(0.75) : Color.white.opacity(0.08))
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityValue(isEnabled ? "On" : "Off")
+        .help("\(label): \(isEnabled ? "On" : "Off")")
     }
 
     private func formatTime(_ seconds: Double) -> String {
@@ -590,7 +665,7 @@ struct FooterView: View {
                         NSWorkspace.shared.open(url)
                     }
                 }) {
-                    Text("v1.6.0")
+                        Text("v1.7.0")
                         .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
                         .foregroundColor(hoverVersion ? .white.opacity(0.6) : .white.opacity(0.18))
                 }

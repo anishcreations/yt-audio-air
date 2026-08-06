@@ -4,6 +4,19 @@ All notable changes to the **YT Audio Air Companion App** (`android/`) are docum
 
 ---
 
+## [v1.2.0] - 2026-08-07
+
+### Added
+- **Playback Modes**: Added synchronized Loop and Autoplay Next controls to the phone app and expanded media notification.
+- **BLE Mode Commands**: Added dedicated commands for toggling loop and Autoplay Next on the Mac.
+- **Playback Precedence Label**: Shows that Loop takes precedence when both Loop and Autoplay Next are enabled.
+
+### Fixed
+- **Connected Without Controls**: Serialized MTU negotiation, service discovery, metadata notification subscription, and initial metadata read so Android no longer reports a premature connection while media sync is incomplete.
+- **Accurate Sync Status**: The companion now reports `Connected (Synced)` only after Android successfully enables the metadata notification descriptor, with specific failure states when controls or metadata are unavailable.
+
+---
+
 ## [v1.1.1] - 2026-08-05
 
 ### Fixed

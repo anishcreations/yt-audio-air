@@ -8,7 +8,7 @@
   <br>
 
   <img src="https://img.shields.io/badge/Platform-macOS%2014.0+-blue?logo=apple" alt="Platform: macOS 14.0+" />
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/App-v1.6.0-green" alt="App Version: v1.6.0" /></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/App-v1.7.0-green" alt="App Version: v1.7.0" /></a>
   <img src="https://img.shields.io/badge/Built%20with-Swift%205%20%2B%20WKWebView-orange?logo=swift" alt="Built with Swift 5 + WKWebView" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue" alt="License: Apache 2.0" /></a>
   <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security-Policy-brightgreen" alt="Security Policy" /></a>
@@ -58,7 +58,7 @@ This project was built using Xcode and Swift.
 ## How It Works
 
 ### Visibility Spoofing
-Overrides the Visibility API at document start so YouTube thinks the player tab is always active — even when the window is parked at `(-20000, -20000)`:
+Overrides the Visibility API at document start so YouTube thinks the player tab is always active. When hidden, the transparent player window keeps a one-pixel intersection with the display so WebKit does not suspend background end-of-track handling:
 ```javascript
 Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
 Object.defineProperty(document, 'hidden', { get: () => false });
@@ -143,7 +143,7 @@ If you prefer to compile the application locally yourself:
 ### Features
 - **Phone Lock Screen & Notification Card**: Displays real-time song title, channel name, album artwork, and transport controls (Play/Pause, Next, Prev, synchronized volume buttons and seekbar).
 - **Wear OS / Galaxy Watches**: Intermediary wrist media controls and bezel volume dial (relayed via paired Android phone over BLE to Mac).
-- **Interactive Dark UI**: Dark glassmorphic interface with connection status badge, live track card, optimistic button response, and versioning footer (`v1.1.1`) + Support ♡.
+- **Interactive Dark UI**: Dark glassmorphic interface with connection status badge, live track card, optimistic button response, and versioning footer (`v1.2.0`) + Support ♡.
 
 ### Building in Android Studio
 1. Open **Android Studio**.

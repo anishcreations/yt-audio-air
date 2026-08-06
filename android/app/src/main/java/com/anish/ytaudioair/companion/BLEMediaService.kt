@@ -45,6 +45,8 @@ class BLEMediaService : Service() {
         const val CMD_VOLUME_UP: Byte        = 0x04
         const val CMD_VOLUME_DOWN: Byte      = 0x05
         const val CMD_SET_VOLUME: Byte       = 0x06
+        const val CMD_TOGGLE_LOOP: Byte      = 0x07
+        const val CMD_TOGGLE_AUTOPLAY_NEXT: Byte = 0x08
 
         const val ACTION_BLE_STATUS = "com.anish.ytaudioair.companion.BLE_STATUS"
         const val ACTION_MEDIA_CONTROL = "com.anish.ytaudioair.companion.MEDIA_CONTROL"
@@ -54,6 +56,8 @@ class BLEMediaService : Service() {
         const val EXTRA_TITLE = "title"
         const val EXTRA_ARTIST = "artist"
         const val EXTRA_IS_PLAYING = "isPlaying"
+        const val EXTRA_LOOP_PLAYBACK = "loopPlayback"
+        const val EXTRA_AUTOPLAY_NEXT = "autoplayNext"
 
         private const val CHANNEL_ID = "yt_audio_air_ble_channel"
         private const val NOTIFICATION_ID = 1001
@@ -65,6 +69,8 @@ class BLEMediaService : Service() {
     private var bluetoothGatt: BluetoothGatt? = null
     private var controlCharacteristic: BluetoothGattCharacteristic? = null
     private var metadataCharacteristic: BluetoothGattCharacteristic? = null
+    private val bleHandler = Handler(Looper.getMainLooper())
+    private var serviceDiscoveryStarted = false
 
     var isConnected: Boolean = false
         private set
@@ -76,6 +82,10 @@ class BLEMediaService : Service() {
     var currentArtist: String = "YouTube"
         private set
     var isMediaPlaying: Boolean = false
+        private set
+    var isLoopPlayback: Boolean = false
+        private set
+    var isAutoplayNext: Boolean = true
         private set
     var currentVolume: Int = 50
         private set
@@ -114,7 +124,11 @@ class BLEMediaService : Service() {
             if (intent.hasExtra(EXTRA_CMD)) {
                 val cmd = intent.getByteExtra(EXTRA_CMD, 0)
                 if (cmd.toInt() != 0) {
-                    sendBLECommand(cmd)
+                    when (cmd) {
+                        CMD_TOGGLE_LOOP -> toggleLoopPlayback()
+                        CMD_TOGGLE_AUTOPLAY_NEXT -> toggleAutoplayNext()
+                        else -> sendBLECommand(cmd)
+                    }
                 }
             }
         }
@@ -133,7 +147,9 @@ class BLEMediaService : Service() {
             putExtra(EXTRA_STATUS, connectionStatus)
             putExtra(EXTRA_TITLE, currentTitle)
             putExtra(EXTRA_ARTIST, currentArtist)
-            putExtra(EXTRA_IS_PLAYING, isMediaPlaying)
+             putExtra(EXTRA_IS_PLAYING, isMediaPlaying)
+             putExtra(EXTRA_LOOP_PLAYBACK, isLoopPlayback)
+             putExtra(EXTRA_AUTOPLAY_NEXT, isAutoplayNext)
         }
         sendBroadcast(intent)
     }
@@ -258,8 +274,24 @@ class BLEMediaService : Service() {
 
     private fun connectToDevice(device: BluetoothDevice) {
         try {
+            serviceDiscoveryStarted = false
             bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         } catch (e: SecurityException) {
+            updateStatus("Connection Permission Error")
+        }
+    }
+
+    @Synchronized
+    private fun discoverServicesOnce(gatt: BluetoothGatt) {
+        if (serviceDiscoveryStarted || bluetoothGatt !== gatt) return
+        serviceDiscoveryStarted = true
+        try {
+            if (!gatt.discoverServices()) {
+                serviceDiscoveryStarted = false
+                updateStatus("Service Discovery Failed")
+            }
+        } catch (e: SecurityException) {
+            serviceDiscoveryStarted = false
             updateStatus("Connection Permission Error")
         }
     }
@@ -270,15 +302,20 @@ class BLEMediaService : Service() {
                 this@BLEMediaService.isConnected = true
                 updateStatus("Connected to Mac!")
                 try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ECLAIR) {
-                        gatt?.requestMtu(512)
+                    if (gatt != null) {
+                        val mtuRequested = gatt.requestMtu(512)
+                        if (!mtuRequested) discoverServicesOnce(gatt)
+
+                        // Some Android stacks accept requestMtu but never call
+                        // onMtuChanged. Continue discovery once after a timeout.
+                        bleHandler.postDelayed({ discoverServicesOnce(gatt) }, 1500)
                     }
-                    gatt?.discoverServices()
                 } catch (e: SecurityException) {
-                    e.printStackTrace()
+                    if (gatt != null) discoverServicesOnce(gatt)
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 this@BLEMediaService.isConnected = false
+                serviceDiscoveryStarted = false
                 controlCharacteristic = null
                 metadataCharacteristic = null
                 updateStatus("Disconnected. Re-scanning...")
@@ -288,11 +325,7 @@ class BLEMediaService : Service() {
 
         override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
             android.util.Log.d("BLEMediaService", "BLE ATT MTU changed to $mtu (status = $status)")
-            try {
-                gatt?.discoverServices()
-            } catch (e: SecurityException) {
-                e.printStackTrace()
-            }
+            if (gatt != null) discoverServicesOnce(gatt)
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
@@ -307,24 +340,58 @@ class BLEMediaService : Service() {
             controlCharacteristic = service.getCharacteristic(CONTROL_CHAR_UUID)
             metadataCharacteristic = service.getCharacteristic(METADATA_CHAR_UUID)
 
+            if (controlCharacteristic == null || metadataCharacteristic == null) {
+                updateStatus("Media Controls Not Found")
+                return
+            }
+
             metadataCharacteristic?.let { char ->
                 try {
-                    gatt.setCharacteristicNotification(char, true)
-                    val descriptor = char.getDescriptor(CCCD_UUID)
-                    if (descriptor != null) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-                        } else {
-                            descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                            gatt.writeDescriptor(descriptor)
-                        }
+                    if (!gatt.setCharacteristicNotification(char, true)) {
+                        updateStatus("Metadata Sync Failed")
+                        return
                     }
-                    updateStatus("Connected (Synced)")
-                    // Read initial metadata immediately upon connection
-                    gatt.readCharacteristic(char)
+                    val descriptor = char.getDescriptor(CCCD_UUID)
+                    if (descriptor == null) {
+                        updateStatus("Metadata Descriptor Missing")
+                        return
+                    }
+
+                    val writeStarted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) == BluetoothStatusCodes.SUCCESS
+                    } else {
+                        @Suppress("DEPRECATION")
+                        descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        @Suppress("DEPRECATION")
+                        gatt.writeDescriptor(descriptor)
+                    }
+                    if (!writeStarted) updateStatus("Metadata Sync Failed")
                 } catch (e: SecurityException) {
-                    e.printStackTrace()
+                    updateStatus("Connection Permission Error")
                 }
+            }
+        }
+
+        override fun onDescriptorWrite(
+            gatt: BluetoothGatt?,
+            descriptor: BluetoothGattDescriptor?,
+            status: Int
+        ) {
+            if (descriptor?.uuid != CCCD_UUID || descriptor.characteristic.uuid != METADATA_CHAR_UUID) return
+            if (status != BluetoothGatt.GATT_SUCCESS || gatt == null) {
+                updateStatus("Metadata Sync Failed ($status)")
+                return
+            }
+
+            updateStatus("Connected (Synced)")
+            try {
+                metadataCharacteristic?.let { characteristic ->
+                    if (!gatt.readCharacteristic(characteristic)) {
+                        android.util.Log.w("BLEMediaService", "Initial metadata read did not start; waiting for notification")
+                    }
+                }
+            } catch (e: SecurityException) {
+                updateStatus("Connection Permission Error")
             }
         }
 
@@ -391,6 +458,18 @@ class BLEMediaService : Service() {
         volumeProvider?.currentVolume = currentVolume
     }
 
+    fun toggleLoopPlayback() {
+        isLoopPlayback = !isLoopPlayback
+        broadcastUpdate()
+        sendBLECommand(CMD_TOGGLE_LOOP)
+    }
+
+    fun toggleAutoplayNext() {
+        isAutoplayNext = !isAutoplayNext
+        broadcastUpdate()
+        sendBLECommand(CMD_TOGGLE_AUTOPLAY_NEXT)
+    }
+
     fun sendBLECommand(commandByte: Byte) {
         writeBLEPayload(byteArrayOf(commandByte))
     }
@@ -431,6 +510,8 @@ class BLEMediaService : Service() {
                 artist = if (rawArtist.isEmpty() || rawArtist.equals("YouTube", ignoreCase = true)) title else rawArtist
                 isPlaying = json.optBoolean("isPlaying", isPlaying)
                 volume = json.optInt("volume", volume)
+                isLoopPlayback = json.optBoolean("loopPlayback", isLoopPlayback)
+                isAutoplayNext = json.optBoolean("autoplayNext", isAutoplayNext)
             } catch (jsonErr: Exception) {
                 val titleMatch = Regex("\"title\":\"([^\"]+)\"").find(jsonString)
                 if (titleMatch != null) title = titleMatch.groupValues[1]
@@ -492,6 +573,18 @@ class BLEMediaService : Service() {
         val targetPlayPauseAction = if (isMediaPlaying) PlaybackStateCompat.ACTION_PAUSE else PlaybackStateCompat.ACTION_PLAY
         val playPausePendingIntent = MediaButtonReceiver.buildMediaButtonPendingIntent(this, targetPlayPauseAction)
         val nextPendingIntent = MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_SKIP_TO_NEXT)
+        val loopPendingIntent = PendingIntent.getService(
+            this,
+            CMD_TOGGLE_LOOP.toInt(),
+            Intent(this, BLEMediaService::class.java).putExtra(EXTRA_CMD, CMD_TOGGLE_LOOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val autoplayPendingIntent = PendingIntent.getService(
+            this,
+            CMD_TOGGLE_AUTOPLAY_NEXT.toInt(),
+            Intent(this, BLEMediaService::class.java).putExtra(EXTRA_CMD, CMD_TOGGLE_AUTOPLAY_NEXT),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
         val playPauseIcon = if (isMediaPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
         val playPauseTitle = if (isMediaPlaying) "Pause" else "Play"
@@ -515,6 +608,8 @@ class BLEMediaService : Service() {
             .addAction(NotificationCompat.Action(android.R.drawable.ic_media_previous, "Previous", prevPendingIntent))
             .addAction(NotificationCompat.Action(playPauseIcon, playPauseTitle, playPausePendingIntent))
             .addAction(NotificationCompat.Action(android.R.drawable.ic_media_next, "Next", nextPendingIntent))
+            .addAction(NotificationCompat.Action(android.R.drawable.ic_menu_revert, if (isLoopPlayback) "Loop On" else "Loop Off", loopPendingIntent))
+            .addAction(NotificationCompat.Action(android.R.drawable.ic_media_next, if (isLoopPlayback && isAutoplayNext) "Autoplay Bypassed" else if (isAutoplayNext) "Autoplay On" else "Autoplay Off", autoplayPendingIntent))
 
         defaultArtworkBitmap?.let { bmp ->
             builder.setLargeIcon(bmp)
@@ -567,6 +662,7 @@ class BLEMediaService : Service() {
     override fun onDestroy() {
         instance = null
         volumeCommandHandler.removeCallbacks(sendPendingAbsoluteVolume)
+        bleHandler.removeCallbacksAndMessages(null)
         try {
             bluetoothGatt?.disconnect()
             bluetoothGatt?.close()
