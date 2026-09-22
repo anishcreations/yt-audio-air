@@ -4,6 +4,10 @@ All notable changes to the **YT Audio Air Companion App** (`android/`) are docum
 
 ---
 
+## Unreleased
+
+- Added a Shuffle control for the Mac's Randomize Playlist setting, synchronized over BLE. Requires the matching updated Mac app.
+
 ## [v1.2.0] - 2026-08-07
 
 ### Added

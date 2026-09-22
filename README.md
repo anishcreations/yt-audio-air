@@ -8,7 +8,7 @@
   <br>
 
   <img src="https://img.shields.io/badge/Platform-macOS%2014.0+-blue?logo=apple" alt="Platform: macOS 14.0+" />
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/App-v1.7.0-green" alt="App Version: v1.7.0" /></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/App-v1.7.1-green" alt="App Version: v1.7.1" /></a>
   <img src="https://img.shields.io/badge/Built%20with-Swift%205%20%2B%20WKWebView-orange?logo=swift" alt="Built with Swift 5 + WKWebView" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue" alt="License: Apache 2.0" /></a>
   <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security-Policy-brightgreen" alt="Security Policy" /></a>
@@ -44,6 +44,7 @@ This project was built using Xcode and Swift.
 - **Minimal Resource Usage** — Video element deflated to 1×1px. Quality forced to 144p. GPU raster bypassed. No MutationObservers — single 300ms polling loop handles everything.
 - **Native Two-Way BLE Remote Control & Metadata Sync** — Communicates natively over Bluetooth Low Energy (BLE) with an Android companion app (and Wear OS smartwatches like Galaxy Watch 4 Classic). Supports reliable repeated media transport control (Play/Pause, Next, Prev, Volume Up/Down) and streams live track metadata (`title`, `artist/channel`, `isPlaying` state) over BLE without requiring local Wi-Fi, IP configurations, or third-party bridge software.
 - **Native Player Controls** — Hovering over the audio player reveals a lightweight macOS control surface with Previous, Play/Pause, Next, current time, duration, and seeking while YouTube's full player chrome remains hidden.
+- **Playlist Playback Modes** — Autoplay Next follows playlist/My Mix order. Enable Randomize Playlist to choose another track from the available queue instead. Loop repeats the current track and takes precedence. The Android companion's Shuffle button controls the same setting; outside playlists, Next uses YouTube's suggested track.
 - **Locked-Down Watch Page** — The video player frame is slightly dimmed for visual comfort (0.8 opacity). Comments, action bars, and related items are completely hidden, while the remaining title and channel section below the player is permanently locked down, unclickable, and ghosted (0.6 opacity) to maintain a pristine, distraction-free pure audio experience. You can still copy the video link from the status bar right-click menu.
 - **Auto-Unmute** — Defeats YouTube mobile's autoplay muting by continuously forcing `video.muted = false` on watch pages.
 - **Hide Images & Avatars** — Toggle to visually hide all video thumbnails and channel profile pictures. Uses non-collapsing styling to preserve card grid alignment and keep video duration overlays fully visible.

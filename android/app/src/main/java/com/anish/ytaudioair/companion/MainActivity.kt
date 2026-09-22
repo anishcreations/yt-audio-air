@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var playPauseButton: Button
     private lateinit var loopButton: Button
     private lateinit var autoplayNextButton: Button
+    private lateinit var randomizeButton: Button
     private lateinit var precedenceTextView: TextView
 
     private var localIsPlaying = false
@@ -45,7 +46,8 @@ class MainActivity : AppCompatActivity() {
                 val autoplayNext = intent.getBooleanExtra(BLEMediaService.EXTRA_AUTOPLAY_NEXT, true)
 
                 localIsPlaying = isPlaying
-                updateUI(status, title, artist, localIsPlaying, loopPlayback, autoplayNext)
+                val randomize = intent.getBooleanExtra(BLEMediaService.EXTRA_RANDOMIZE, false)
+                updateUI(status, title, artist, localIsPlaying, loopPlayback, autoplayNext, randomize)
             }
         }
     }
@@ -164,6 +166,12 @@ class MainActivity : AppCompatActivity() {
         playbackModesLayout.addView(autoplayNextButton)
         root.addView(playbackModesLayout)
 
+        randomizeButton = Button(this).apply {
+            text = "Shuffle: Off"
+            setOnClickListener { BLEMediaService.instance?.toggleRandomizePlayback() }
+        }
+        root.addView(randomizeButton)
+
         precedenceTextView = TextView(this).apply {
             text = "Loop takes precedence over Autoplay Next"
             setTextColor(Color.parseColor("#FFB74D"))
@@ -248,7 +256,8 @@ class MainActivity : AppCompatActivity() {
                 service.currentArtist,
                 localIsPlaying,
                 service.isLoopPlayback,
-                service.isAutoplayNext
+                service.isAutoplayNext,
+                service.isRandomizePlayback
             )
         }
     }
@@ -266,7 +275,8 @@ class MainActivity : AppCompatActivity() {
         artist: String,
         isPlaying: Boolean,
         loopPlayback: Boolean,
-        autoplayNext: Boolean
+        autoplayNext: Boolean,
+        randomizePlayback: Boolean
     ) {
         statusTextView.text = if (status.contains("Ready") || status.contains("Connected")) "● $status" else "○ $status"
         if (status.contains("Ready") || status.contains("Connected")) {
@@ -281,6 +291,7 @@ class MainActivity : AppCompatActivity() {
         playPauseButton.text = if (isPlaying) "⏸ Pause" else "▶ Play"
         loopButton.text = if (loopPlayback) "↻ Loop: On" else "↻ Loop: Off"
         autoplayNextButton.text = if (autoplayNext) "Next: On" else "Next: Off"
+        randomizeButton.text = if (randomizePlayback) "Shuffle: On" else "Shuffle: Off"
         precedenceTextView.visibility = if (loopPlayback && autoplayNext) View.VISIBLE else View.GONE
     }
 

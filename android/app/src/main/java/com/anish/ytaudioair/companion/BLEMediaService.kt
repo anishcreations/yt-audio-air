@@ -47,6 +47,7 @@ class BLEMediaService : Service() {
         const val CMD_SET_VOLUME: Byte       = 0x06
         const val CMD_TOGGLE_LOOP: Byte      = 0x07
         const val CMD_TOGGLE_AUTOPLAY_NEXT: Byte = 0x08
+        const val CMD_TOGGLE_RANDOMIZE: Byte = 0x09
 
         const val ACTION_BLE_STATUS = "com.anish.ytaudioair.companion.BLE_STATUS"
         const val ACTION_MEDIA_CONTROL = "com.anish.ytaudioair.companion.MEDIA_CONTROL"
@@ -58,6 +59,7 @@ class BLEMediaService : Service() {
         const val EXTRA_IS_PLAYING = "isPlaying"
         const val EXTRA_LOOP_PLAYBACK = "loopPlayback"
         const val EXTRA_AUTOPLAY_NEXT = "autoplayNext"
+        const val EXTRA_RANDOMIZE = "randomizePlayback"
 
         private const val CHANNEL_ID = "yt_audio_air_ble_channel"
         private const val NOTIFICATION_ID = 1001
@@ -86,6 +88,8 @@ class BLEMediaService : Service() {
     var isLoopPlayback: Boolean = false
         private set
     var isAutoplayNext: Boolean = true
+        private set
+    var isRandomizePlayback: Boolean = false
         private set
     var currentVolume: Int = 50
         private set
@@ -127,6 +131,7 @@ class BLEMediaService : Service() {
                     when (cmd) {
                         CMD_TOGGLE_LOOP -> toggleLoopPlayback()
                         CMD_TOGGLE_AUTOPLAY_NEXT -> toggleAutoplayNext()
+                        CMD_TOGGLE_RANDOMIZE -> toggleRandomizePlayback()
                         else -> sendBLECommand(cmd)
                     }
                 }
@@ -150,6 +155,7 @@ class BLEMediaService : Service() {
              putExtra(EXTRA_IS_PLAYING, isMediaPlaying)
              putExtra(EXTRA_LOOP_PLAYBACK, isLoopPlayback)
              putExtra(EXTRA_AUTOPLAY_NEXT, isAutoplayNext)
+             putExtra(EXTRA_RANDOMIZE, isRandomizePlayback)
         }
         sendBroadcast(intent)
     }
@@ -470,6 +476,12 @@ class BLEMediaService : Service() {
         sendBLECommand(CMD_TOGGLE_AUTOPLAY_NEXT)
     }
 
+    fun toggleRandomizePlayback() {
+        isRandomizePlayback = !isRandomizePlayback
+        broadcastUpdate()
+        sendBLECommand(CMD_TOGGLE_RANDOMIZE)
+    }
+
     fun sendBLECommand(commandByte: Byte) {
         writeBLEPayload(byteArrayOf(commandByte))
     }
@@ -512,6 +524,7 @@ class BLEMediaService : Service() {
                 volume = json.optInt("volume", volume)
                 isLoopPlayback = json.optBoolean("loopPlayback", isLoopPlayback)
                 isAutoplayNext = json.optBoolean("autoplayNext", isAutoplayNext)
+                isRandomizePlayback = json.optBoolean("randomizePlayback", isRandomizePlayback)
             } catch (jsonErr: Exception) {
                 val titleMatch = Regex("\"title\":\"([^\"]+)\"").find(jsonString)
                 if (titleMatch != null) title = titleMatch.groupValues[1]

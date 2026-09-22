@@ -36,6 +36,7 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
         case setVolume       = 0x06
         case toggleLoop      = 0x07
         case toggleAutoplayNext = 0x08
+        case toggleRandomize = 0x09
     }
     
     // MARK: - Properties
@@ -227,7 +228,8 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
         isPlaying: Bool,
         volume: Int = 50,
         loopPlayback: Bool = false,
-        autoplayNext: Bool = true
+        autoplayNext: Bool = true,
+        randomizePlayback: Bool = false
     ) {
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -235,7 +237,7 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
         let displayTitle = cleanTitle.isEmpty ? "YT Audio Air" : cleanTitle
         let displayArtist = (cleanArtist.isEmpty || cleanArtist.lowercased() == "youtube") ? displayTitle : cleanArtist
         
-        let metadataKey = "\(displayTitle)|\(displayArtist)|\(isPlaying)|\(volume)|\(loopPlayback)|\(autoplayNext)"
+        let metadataKey = "\(displayTitle)|\(displayArtist)|\(isPlaying)|\(volume)|\(loopPlayback)|\(autoplayNext)|\(randomizePlayback)"
         
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -249,7 +251,8 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
                 "isPlaying": isPlaying,
                 "volume": volume,
                 "loopPlayback": loopPlayback,
-                "autoplayNext": autoplayNext
+                "autoplayNext": autoplayNext,
+                "randomizePlayback": randomizePlayback
             ]
             
             guard let jsonData = try? JSONSerialization.data(withJSONObject: metadataDict, options: []) else { return }
@@ -269,7 +272,7 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
 
     /// Updates mode state immediately, even if WebKit is temporarily quiet
     /// while its panel is parked in the background.
-    func broadcastPlaybackPreferences(loopPlayback: Bool, autoplayNext: Bool) {
+    func broadcastPlaybackPreferences(loopPlayback: Bool, autoplayNext: Bool, randomizePlayback: Bool) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard let data = self.currentMetadataJSON.data(using: .utf8),
@@ -278,6 +281,7 @@ final class BLEMediaServer: NSObject, CBPeripheralManagerDelegate {
             }
             metadata["loopPlayback"] = loopPlayback
             metadata["autoplayNext"] = autoplayNext
+            metadata["randomizePlayback"] = randomizePlayback
             guard let updatedData = try? JSONSerialization.data(withJSONObject: metadata) else { return }
             self.currentMetadataJSON = String(data: updatedData, encoding: .utf8) ?? self.currentMetadataJSON
             self.lastBroadcastKey = ""

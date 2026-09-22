@@ -27,6 +27,9 @@ struct ContentView: View {
     @State private var isHoveringPlayer = false
     @State private var isWatchPage = false
     @State private var playerIsPlaying = false
+    @State private var playerIsAd = false
+    @State private var playerIsLoading = false
+    @State private var playbackError = ""
     @State private var playbackTime = 0.0
     @State private var playbackDuration = 0.0
     @State private var isSeeking = false
@@ -39,6 +42,7 @@ struct ContentView: View {
     @AppStorage("premiumUser") private var premiumUser = false
     @AppStorage("loopPlayback") private var loopPlayback = false
     @AppStorage("autoplayNext") private var autoplayNext = true
+    @AppStorage("randomizePlayback") private var randomizePlayback = false
     
     var body: some View {
         ZStack {
@@ -76,17 +80,44 @@ struct ContentView: View {
                                 Color.clear
                                     .contentShape(Rectangle())
                                     .onTapGesture {
-                                        AppDelegate.shared?.handleRemoteCommand(BLEMediaServer.Command.togglePlayPause.rawValue)
+                                        if !playerIsLoading && playbackError.isEmpty {
+                                            AppDelegate.shared?.handleRemoteCommand(BLEMediaServer.Command.togglePlayPause.rawValue)
+                                        }
                                     }
+
+                                if playerIsAd || playerIsLoading || !playbackError.isEmpty {
+                                    VStack(spacing: 8) {
+                                        Spacer()
+                                        Text(!playbackError.isEmpty ? playbackError : playerIsAd ? (premiumUser ? "Ad playing…" : "Skipping ad…") : "Loading track…")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundColor(.white.opacity(0.7))
+                                            .multilineTextAlignment(.center)
+                                        if !playbackError.isEmpty {
+                                            Button("Refresh player") {
+                                                playbackError = ""
+                                                playerIsLoading = true
+                                                AppDelegate.shared?.webView.reload()
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .controlSize(.small)
+                                        }
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 24)
+                                    .padding(.bottom, 90)
+                                    .allowsHitTesting(!playbackError.isEmpty)
+                                }
 
                                 if isHoveringPlayer || isSeeking {
                                     PlayerTransportControls(
                                         isPlaying: playerIsPlaying,
+                                        isLoading: playerIsLoading || !playbackError.isEmpty,
                                         currentTime: $playbackTime,
                                         duration: playbackDuration,
                                         isSeeking: $isSeeking,
                                         loopPlayback: $loopPlayback,
-                                        autoplayNext: $autoplayNext
+                                        autoplayNext: $autoplayNext,
+                                        randomizePlayback: $randomizePlayback
                                     )
                                         .padding(.bottom, 12)
                                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
@@ -229,7 +260,7 @@ struct ContentView: View {
                                 Text("Autoplay Next")
                                     .font(.system(size: 11.5, weight: .medium, design: .rounded))
                                     .foregroundColor(.white.opacity(0.85))
-                                Text("(Loop takes precedence)")
+                                Text("(follows playlist order; Loop takes precedence)")
                                     .font(.system(size: 9, weight: .regular, design: .rounded))
                                     .foregroundColor(.white.opacity(0.45))
                             }
@@ -237,6 +268,17 @@ struct ContentView: View {
                             Toggle("", isOn: $autoplayNext)
                                 .toggleStyle(.switch)
                                 .labelsHidden()
+                        }
+
+                        HStack {
+                            Text("Randomize Playlist")
+                                .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                                .foregroundColor(.white.opacity(0.85))
+                            Spacer()
+                            Toggle("", isOn: $randomizePlayback)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                                .accessibilityLabel("Randomize Playlist")
                         }
                         
                         Button(action: {
@@ -279,8 +321,13 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .onAppear {
-            startNavigationPolling()
+        .task {
+            // SwiftUI cancels this task when the view disappears, preventing
+            // duplicate timers if it is mounted again.
+            while !Task.isCancelled {
+                updateNavigationState()
+                try? await Task.sleep(for: .milliseconds(500))
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ShowOptions"))) { _ in
             withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
@@ -290,6 +337,10 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("PlayerStateUpdated"))) { notification in
             guard let state = notification.userInfo else { return }
             playerIsPlaying = state["isPlaying"] as? Bool ?? false
+            playerIsAd = state["isAd"] as? Bool ?? false
+            playerIsLoading = state["isLoading"] as? Bool ?? false
+            playbackError = state["playbackError"] as? String ?? ""
+            if playerIsLoading || playerIsAd || !playbackError.isEmpty { isSeeking = false }
             if !isSeeking {
                 playbackDuration = max(0, (state["duration"] as? NSNumber)?.doubleValue ?? 0)
                 playbackTime = min(
@@ -298,64 +349,44 @@ struct ContentView: View {
                 )
             }
         }
-        .onChange(of: loopPlayback) { _ in
-            AppDelegate.shared?.playbackPreferencesDidChange()
-        }
-        .onChange(of: autoplayNext) { _ in
+        .onChange(of: [hideImages, grayscale, hideHomeFeed, hideShorts, hideSubscriptions,
+                       premiumUser, loopPlayback, autoplayNext, randomizePlayback]) {
             AppDelegate.shared?.playbackPreferencesDidChange()
         }
     }
-    
-    private func startNavigationPolling() {
-        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            guard let wv = AppDelegate.shared?.webView else { return }
-            DispatchQueue.main.async {
-                canGoBack = wv.canGoBack
-                canGoForward = wv.canGoForward
-                isLoading = wv.isLoading
-                pageTitle = wv.title ?? "YT Audio Air"
-                let watchPage = wv.url?.path.hasPrefix("/watch") ?? false
-                isWatchPage = watchPage
-                if !watchPage {
-                    isHoveringPlayer = false
-                    isSeeking = false
-                    playbackTime = 0
-                    playbackDuration = 0
-                }
-                
-                let hide = UserDefaults.standard.bool(forKey: "hideImages")
-                let gray = UserDefaults.standard.bool(forKey: "grayscale")
-                let hideHome = UserDefaults.standard.bool(forKey: "hideHomeFeed")
-                let hideSh = UserDefaults.standard.bool(forKey: "hideShorts")
-                let hideSub = UserDefaults.standard.bool(forKey: "hideSubscriptions")
-                let prem = UserDefaults.standard.bool(forKey: "premiumUser")
-                let loop = UserDefaults.standard.bool(forKey: "loopPlayback")
-                let autoplay = UserDefaults.standard.bool(forKey: "autoplayNext")
-                
-                wv.evaluateJavaScript("""
-                    window.__hideImages = \(hide);
-                    window.__grayscale = \(gray);
-                    window.__hideHomeFeed = \(hideHome);
-                    window.__hideShorts = \(hideSh);
-                    window.__hideSubscriptions = \(hideSub);
-                    window.__premiumUser = \(prem);
-                    window.__loopPlayback = \(loop);
-                    window.__autoplayNext = \(autoplay);
-                """, completionHandler: nil)
-            }
+
+    private func updateNavigationState() {
+        guard let wv = AppDelegate.shared?.webView else { return }
+        canGoBack = wv.canGoBack
+        canGoForward = wv.canGoForward
+        isLoading = wv.isLoading
+        pageTitle = wv.title ?? "YT Audio Air"
+        let watchPage = wv.url?.path.hasPrefix("/watch") ?? false
+        isWatchPage = watchPage
+        if !watchPage {
+            isHoveringPlayer = false
+            isSeeking = false
+            playerIsAd = false
+            playerIsLoading = false
+            playbackError = ""
+            playbackTime = 0
+            playbackDuration = 0
         }
     }
+
 }
 
 // MARK: - Minimal Player Controls
 
 struct PlayerTransportControls: View {
     let isPlaying: Bool
+    let isLoading: Bool
     @Binding var currentTime: Double
     let duration: Double
     @Binding var isSeeking: Bool
     @Binding var loopPlayback: Bool
     @Binding var autoplayNext: Bool
+    @Binding var randomizePlayback: Bool
 
     var body: some View {
         VStack(spacing: 8) {
@@ -395,6 +426,8 @@ struct PlayerTransportControls: View {
                     command: .togglePlayPause,
                     emphasized: true
                 )
+                .disabled(isLoading)
+                .opacity(isLoading ? 0.45 : 1)
                 controlButton(icon: "forward.end.fill", label: "Next", command: .nextTrack)
                 playbackModeButton(
                     icon: "forward.end.circle",
@@ -402,6 +435,13 @@ struct PlayerTransportControls: View {
                     isEnabled: autoplayNext
                 ) {
                     autoplayNext.toggle()
+                }
+                playbackModeButton(
+                    icon: "shuffle",
+                    label: "Randomize Playlist",
+                    isEnabled: randomizePlayback
+                ) {
+                    randomizePlayback.toggle()
                 }
             }
 
@@ -665,7 +705,7 @@ struct FooterView: View {
                         NSWorkspace.shared.open(url)
                     }
                 }) {
-                        Text("v1.7.0")
+                        Text("v1.7.1")
                         .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
                         .foregroundColor(hoverVersion ? .white.opacity(0.6) : .white.opacity(0.18))
                 }

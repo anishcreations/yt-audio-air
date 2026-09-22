@@ -3,6 +3,25 @@
 All notable changes to this project are documented in this file. 
 (See [android/UPDATES.md](android/UPDATES.md) for Android (Wear OS) companion app changelog).
 
+## [v1.7.1] - 2026-09-22
+
+### Fixed
+- Repeated Next commands now wait for the target media to be ready before advancing the queue. Stale selected playlist rows are ignored, and failed transitions cancel pending skips instead of cascading into a blank player.
+- Removed duplicate autoplay/play-button actions and delayed play calls that could pause a just-started track or replay the outgoing track during a slow skip. Manual pauses cancel pending playback requests.
+- Pausing near the end no longer triggers a premature loop or skip. Stale events from removed videos no longer overwrite current playback state.
+- Cached native Core Audio reads replace volume AppleScript polling. Metadata scans and progress messages are throttled, unchanged style attributes are left alone, and view polling is cancelled when the view disappears.
+- Ad seeks and skip clicks are rate limited to avoid repeatedly disturbing an in-flight transition.
+- Autoplay and Next follow explicit playlist/My Mix entries instead of falling through to unrelated recommendations. Previous follows queue order; an exhausted queue stops.
+- Ad completion events reach YouTube's handlers. Ad skipping uses the player's ad state, ignores overlay banners, tolerates unsupported seek/rate operations, and restores the previous playback speed.
+- Debug and Release builds target macOS 14.0, matching the documented minimum.
+
+### Added
+- Loading status and a Refresh player action for failed track changes; empty media no longer shows an active Pause control at 0:00.
+- A “Skipping ad…” status message in the native player, with ad seeking disabled.
+- Separate bundled playback JavaScript and native volume helper; see [development notes](docs/DEVELOPMENT.md) for the source layout and checks.
+- A separate Randomize Playlist control in the Mac player, Options, and Android companion. Randomize picks another track from the available queue; Loop still takes precedence over automatic advancement. Outside playlists, Next uses YouTube's suggested track.
+- Playback regression tests: `node --test tests/playback.test.cjs`.
+
 ## [v1.7.0] - 2026-08-07
 
 ### Fixed
